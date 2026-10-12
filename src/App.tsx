@@ -82,6 +82,7 @@ import {
   HelpCircle,
   Cloud,
   RefreshCw,
+  ScanText,
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
@@ -207,8 +208,9 @@ import OCRHistory from './components/OCRHistory';
 import TRMSAssistant from './components/TRMSAssistant';
 import CorporateTaxAssistant from './components/CorporateTaxAssistant';
 import NotificationCenter from './components/NotificationCenter';
+import OcrTool from './components/OcrTool';
 
-type Tab = 'dashboard' | 'nbr-script-markup' | 'vat' | 'tax' | 'tariff' | 'manifest' | 'reports' | 'blog' | 'tools' | 'ai' | 'invoice' | 'history' | 'notices' | 'rebate' | 'hscode' | 'subscription' | 'crypto-tax' | 'blockchain-verify' | 'tokenized-cert' | 'tax-advisory' | 'zakat' | 'final-tax' | 'developer' | 'documents' | 'critical-vat' | 'help' | 'social' | 'base' | 'x-scraper' | 'whatsapp' | 'odoo' | 'dropbox' | 'odoo-erp' | 'erpnext' | 'vat-agents' | 'live-agent' | 'donation' | 'vds-tracker' | 'tds-tracker' | 'compliance-calendar' | 'agent-marketplace' | 'challan-verify' | 'mfs-payment' | 'trms-extractor' | 'corporate-tax' | 'ocr-automation' | 'law-updates' | 'vat-ocr' | 'tax-ocr';
+type Tab = 'dashboard' | 'nbr-script-markup' | 'ocr' | 'vat' | 'tax' | 'tariff' | 'manifest' | 'reports' | 'blog' | 'tools' | 'ai' | 'invoice' | 'history' | 'notices' | 'rebate' | 'hscode' | 'subscription' | 'crypto-tax' | 'blockchain-verify' | 'tokenized-cert' | 'tax-advisory' | 'zakat' | 'final-tax' | 'developer' | 'documents' | 'critical-vat' | 'help' | 'social' | 'base' | 'x-scraper' | 'whatsapp' | 'odoo' | 'dropbox' | 'odoo-erp' | 'erpnext' | 'vat-agents' | 'live-agent' | 'donation' | 'vds-tracker' | 'tds-tracker' | 'compliance-calendar' | 'agent-marketplace' | 'challan-verify' | 'mfs-payment' | 'trms-extractor' | 'corporate-tax' | 'ocr-automation' | 'law-updates' | 'vat-ocr' | 'tax-ocr';
 
 interface TaxNotice {
   id: number;
@@ -451,6 +453,7 @@ export default function App() {
                     <div className="space-y-1">
                       <NavItem icon={<BarChart3 size={18} />} label={t.dashboard} active={activeTab === 'dashboard'} onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }} />
                       <NavItem icon={<FileCode size={18} className="text-emerald-500" />} label={t.nbrScriptMarkup || "NBR Script from Markup"} badge="Featured" active={activeTab === 'nbr-script-markup'} onClick={() => { setActiveTab('nbr-script-markup'); setIsMobileMenuOpen(false); }} />
+                      <NavItem icon={<ScanText size={18} className="text-emerald-500" />} label={language === 'bn' ? 'ফ্রি বাংলা OCR' : 'Free Bengali OCR'} badge="Free" active={activeTab === 'ocr'} onClick={() => { setActiveTab('ocr'); setIsMobileMenuOpen(false); }} />
                       <NavItem icon={<FileSearch size={18} />} label={t.documents} badge="Smart" active={activeTab === 'documents'} onClick={() => { setActiveTab('documents'); setIsMobileMenuOpen(false); }} />
                     </div>
                   </div>
@@ -619,6 +622,13 @@ export default function App() {
               badge="Featured"
               active={activeTab === 'nbr-script-markup'} 
               onClick={() => setActiveTab('nbr-script-markup')} 
+            />
+            <NavItem 
+              icon={<ScanText size={18} className="text-emerald-500" />} 
+              label={language === 'bn' ? 'ফ্রি বাংলা OCR' : 'Free Bengali OCR'} 
+              badge="Free"
+              active={activeTab === 'ocr'} 
+              onClick={() => setActiveTab('ocr')} 
             />
             <NavItem 
               icon={<FileSearch size={18} />} 
@@ -1181,6 +1191,7 @@ export default function App() {
             {activeTab === 'final-tax' && <FinalTaxCalculator />}
             {activeTab === 'zakat' && <ZakatCalculator />}
             {activeTab === 'critical-vat' && <Mushak91Form />}
+            {activeTab === 'ocr' && <OcrTool language={language} />}
             {activeTab === 'developer' && <DeveloperPanel notices={notices} setNotices={setNotices} />}
             {activeTab === 'documents' && <DocumentCentre language={language} setLanguage={setLanguage} onInvoiceExtracted={(data) => {
               setPrefilledInvoice(data);
@@ -2972,6 +2983,13 @@ function Dashboard({ vatHistory, taxHistory, t, notices, language }: { vatHistor
                 className="px-8 py-4 bg-brand-500 hover:bg-brand-600 text-white rounded-2xl font-black text-sm transition-all shadow-xl shadow-brand-500/30 active:scale-95"
               >
                 {t.newVat}
+              </button>
+              <button 
+                onClick={() => window.dispatchEvent(new CustomEvent('changeTab', { detail: 'ocr' }))} 
+                className="px-8 py-4 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-2xl font-black text-sm transition-all border border-emerald-500/40 active:scale-95 flex items-center gap-2"
+              >
+                <ScanText size={18} />
+                {isBn ? 'ফ্রি বাংলা OCR' : 'Free Bengali OCR'}
               </button>
               <button 
                 onClick={() => window.dispatchEvent(new CustomEvent('changeTab', { detail: 'notices' }))} 

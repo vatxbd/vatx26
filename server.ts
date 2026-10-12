@@ -15,6 +15,7 @@ import multer from "multer";
 import fs from "fs";
 import { spawn } from "child_process";
 import { GoogleGenAI } from "@google/genai";
+import rateLimit from "express-rate-limit";
 
 dotenv.config();
 
@@ -1180,6 +1181,108 @@ CRITICAL EXTRACTION RULES:
     } catch (err: any) {
       console.error("MarkItDown Convert Route Error:", err);
       return res.status(500).json({ error: err.message || "MarkItDown document conversion failed" });
+    }
+  });
+
+  // OCR AI Rate Limiter (Max 10 requests per IP per day / 24 hours)
+  const ocrAiLimiter = rateLimit({
+    windowMs: 24 * 60 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      success: false,
+      error: "দৈনিক লিমিট শেষ হয়েছে (সর্বোচ্চ ১০ বার প্রতি দিন)। অনুগ্রহ করে স্ট্যান্ডার্ড (ফ্রি) ওসিআর ব্যবহার করুন অথবা আগামীকাল আবার চেষ্টা করুন।",
+      limitExceeded: true
+    },
+    statusCode: 429
+  });
+
+  const ocrMemoryUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 5 * 1024 * 1024 // 5MB limit
+    },
+    fileFilter: (_req, file, cb) => {
+      const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+      if (allowed.includes(file.mimetype) || file.mimetype.startsWith('image/')) {
+        cb(null, true);
+      } else {
+        cb(new Error("শুধুমাত্র JPG, PNG বা WebP ছবি গ্রহণযোগ্য।"));
+      }
+    }
+  });
+
+  // Enhanced AI OCR Route (Gemini 2.5 Flash)
+  app.post("/api/ocr", ocrAiLimiter, (req, res, next) => {
+    ocrMemoryUpload.single('image')(req, res, (err) => {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({
+            success: false,
+            error: "ছবির সাইজ ৫ মেগাবাইট (5MB)-এর চেয়ে বেশি হতে পারবে না।"
+          });
+        }
+        return res.status(400).json({
+          success: false,
+          error: err.message || "ছবি আপলোড করতে সমস্যা হয়েছে।"
+        });
+      }
+      next();
+    });
+  }, async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          error: "কোনো ছবি পাওয়া যায়নি। অনুগ্রহ করে একটি ছবি আপলোড করুন।"
+        });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({
+          success: false,
+          error: "সার্ভারে GEMINI_API_KEY কনফিগার করা নেই। অনুগ্রহ করে স্ট্যান্ডার্ড ফ্রি ওসিআর ব্যবহার করুন।"
+        });
+      }
+
+      const base64Data = req.file.buffer.toString('base64');
+      const mimeType = req.file.mimetype || 'image/jpeg';
+
+      const aiRes = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [
+          {
+            inlineData: {
+              mimeType: mimeType,
+              data: base64Data
+            }
+          },
+          {
+            text: `You are an expert OCR and document digitization system specializing in Bengali (বাংলা) and English texts, official tax records, receipts, challans, forms, and documents.
+Task: Extract and accurately transcribe all visible text from this image with highest fidelity.
+Rules:
+1. Faithfully extract both Bengali and English text, punctuation, and numerals (both Bengali ১,২,৩... and English 1,2,3...).
+2. Preserve original lines, paragraphs, headings, bullet lists, and table formatting where applicable.
+3. Do NOT invent or guess missing words. Do not add intro, markdown code ticks, or conversational commentary. Return ONLY the transcribed text.`
+          }
+        ]
+      });
+
+      const text = (aiRes.text || "").trim();
+      return res.json({
+        success: true,
+        text: text,
+        engine: "gemini-2.5-flash",
+        charCount: text.length
+      });
+    } catch (error: any) {
+      console.error("AI OCR Error:", error);
+      return res.status(500).json({
+        success: false,
+        error: error.message || "এআই ওসিআর প্রক্রিয়াকরণে সমস্যা হয়েছে। অনুগ্রহ করে স্ট্যান্ডার্ড ফ্রি ওসিআর ব্যবহার করুন।"
+      });
     }
   });
 
