@@ -292,6 +292,18 @@ export default function CommandPalette({
         category: 'Enterprise',
         keywords: 'mfs payment bkash nagad rocket challan বিকাশ নগদ পেমেন্ট',
         icon: <Smartphone className="w-4 h-4 text-pink-400" />
+      },
+      {
+        id: 'subscription',
+        tab: 'subscription',
+        titleEn: 'Subscription Plans & Multi-Channel Payment Gateway',
+        titleBn: 'সাবস্ক্রিপশন প্ল্যান ও মাল্টি-চ্যানেল পেমেন্ট গেটওয়ে',
+        subtitleEn: 'Upgrade to Basic, Pro, or Enterprise via SSLCOMMERZ, AamarPay, bKash, Nagad & Cards',
+        subtitleBn: 'SSLCOMMERZ, বিকাশ, নগদ ও কার্ডের মাধ্যমে প্রো বা এন্টারপ্রাইজ লাইসেন্স সক্রিয় করুন',
+        category: 'MVP Core',
+        keywords: 'subscription pricing pro enterprise payment gateway sslcommerz aamarpay bkash nagad সাবস্ক্রিপশন পেমেন্ট প্রো',
+        isMvp: true,
+        icon: <Sparkles className="w-4 h-4 text-amber-400" />
       }
     ],
     []

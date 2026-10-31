@@ -85,7 +85,8 @@ import {
   ScanText,
   FileSpreadsheet,
   Clock,
-  AlarmClock
+  AlarmClock,
+  CreditCard
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
@@ -119,6 +120,7 @@ import VatAgentPortal from './components/VatAgentPortal';
 import NBRMarkupScriptHub from './components/NBRMarkupScriptHub';
 import { NBRScriptModal } from './components/NBRScriptModal';
 import { PaymentGatewayModal } from './components/PaymentGatewayModal';
+import { AuthAccountModal, UserProfile } from './components/AuthAccountModal';
 import { generatePrivateSalaryLedgerScript, generateTRMSScript, generateUniversalETaxScript, formatNBRDate } from './utils/nbrScriptGenerator';
 import { parseRobustJson } from './utils/robustJsonParser';
 import { clsx, type ClassValue } from 'clsx';
@@ -245,6 +247,16 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [prefilledInvoice, setPrefilledInvoice] = useState<any>(null);
   const [isGoogleAuthenticated, setIsGoogleAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    try {
+      const saved = localStorage.getItem('vatx_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [currentSubscription, setCurrentSubscription] = useState<any>({ status: 'none', planName: 'Standard' });
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [upcomingAlertsPreview, setUpcomingAlertsPreview] = useState<any[]>([]);
   const [openSidebarGroups, setOpenSidebarGroups] = useState<Record<string, boolean>>({
@@ -252,7 +264,7 @@ export default function App() {
     tax: true,
     docs: true,
     ai: false,
-    compliance: false,
+    compliance: true,
     enterprise: false
   });
 
@@ -266,7 +278,7 @@ export default function App() {
       tax: ['nbr-script-markup', 'tax', 'corporate-tax', 'trms-extractor', 'tds-tracker', 'final-tax', 'rebate', 'zakat', 'tax-ocr'],
       docs: ['scanner', 'ocr', 'documents'],
       ai: ['ai', 'tax-advisory', 'hscode'],
-      compliance: ['compliance-calendar', 'reports', 'mfs-payment', 'history', 'notices'],
+      compliance: ['subscription', 'compliance-calendar', 'reports', 'mfs-payment', 'history', 'notices'],
       enterprise: ['invoice', 'odoo', 'odoo-erp', 'erpnext', 'dropbox', 'base', 'crypto-tax', 'blockchain-verify', 'tokenized-cert', 'blog', 'social', 'whatsapp', 'x-scraper', 'donation', 'help']
     };
     for (const [grp, tabs] of Object.entries(groupMap)) {
@@ -316,20 +328,21 @@ export default function App() {
     try {
       const res = await fetch('/api/auth/status');
       const data = await res.json();
-      setIsGoogleAuthenticated(data.isAuthenticated);
+      setIsGoogleAuthenticated(Boolean(data.isAuthenticated || currentUser));
+      if (data.user) {
+        setCurrentUser(data.user);
+        localStorage.setItem('vatx_user', JSON.stringify(data.user));
+      }
+      if (data.subscription) {
+        setCurrentSubscription(data.subscription);
+      }
     } catch (e) {
       console.error("Auth check failed", e);
     }
   };
 
   const handleGoogleConnect = async () => {
-    try {
-      const res = await fetch('/auth/google/url');
-      const { url } = await res.json();
-      window.open(url, 'google_oauth', 'width=600,height=700');
-    } catch (e) {
-      console.error("Failed to get auth URL", e);
-    }
+    setIsAuthModalOpen(true);
   };
 
   useEffect(() => {
@@ -453,7 +466,22 @@ export default function App() {
             <span className="text-xs font-mono font-bold text-zinc-400">.BD</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <button 
+            onClick={() => setActiveTab('subscription')}
+            className="px-2.5 py-1.5 bg-amber-400/20 border border-amber-400/40 text-amber-400 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1"
+            title="Subscription & Plans"
+          >
+            <CreditCard size={13} />
+            <span>{currentSubscription?.status === 'active' ? currentSubscription.planName : 'PRO'}</span>
+          </button>
+          <button 
+            onClick={() => setIsAuthModalOpen(true)}
+            className="p-2 text-emerald-400 hover:bg-zinc-800 rounded-lg"
+            title="User Login & Profile"
+          >
+            <User size={19} />
+          </button>
           <button 
             onClick={() => setIsCommandPaletteOpen(true)}
             className="p-2 text-amber-400 hover:bg-zinc-800 rounded-lg"
@@ -529,6 +557,8 @@ export default function App() {
                     <p className="px-3 text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-widest mb-2">Command Center</p>
                     <div className="space-y-1">
                       <NavItem icon={<BarChart3 size={16} />} label={t.dashboard} active={activeTab === 'dashboard'} onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }} />
+                      <NavItem icon={<CreditCard size={16} className="text-amber-400" />} label={language === 'bn' ? 'সাবস্ক্রিপশন ও পেমেন্ট গেটওয়ে' : 'Subscription & Plans'} badge="PRO" active={activeTab === 'subscription'} onClick={() => { setActiveTab('subscription'); setIsMobileMenuOpen(false); }} />
+                      <NavItem icon={<User size={16} className="text-emerald-400" />} label={currentUser ? `${currentUser.name}` : (language === 'bn' ? 'ইউজার লগইন / রেজিস্ট্রেশন' : 'User Login & Account')} badge={currentUser ? 'Active' : 'Sign In'} active={isAuthModalOpen} onClick={() => { setIsMobileMenuOpen(false); setIsAuthModalOpen(true); }} />
                       <NavItem icon={<ShieldCheck size={16} className="text-amber-400" />} label={language === 'bn' ? 'এমভিপি ফিচার হাব' : 'MVP Features Hub'} badge="11/11" active={activeTab === 'mvp-hub'} onClick={() => { setActiveTab('mvp-hub'); setIsMobileMenuOpen(false); }} />
                       <NavItem icon={<Bell size={16} className="text-rose-400" />} label={language === 'bn' ? '৭-দিনের ডেডলাইন অ্যালার্ট' : '7-Day Deadline Alerts'} badge="Live" active={activeTab === 'law-updates'} onClick={() => { setActiveTab('law-updates'); setIsMobileMenuOpen(false); }} />
                       <NavItem icon={<Camera size={16} className="text-emerald-400" />} label={t.documentScanner || (language === 'bn' ? 'ডকুমেন্ট স্ক্যানার ও PDF' : 'Document Scanner & PDF')} badge="Live" active={activeTab === 'scanner'} onClick={() => { setActiveTab('scanner'); setIsMobileMenuOpen(false); }} />
@@ -736,6 +766,20 @@ export default function App() {
               active={activeTab === 'law-updates'} 
               onClick={() => setActiveTab('law-updates')} 
             />
+            <NavItem 
+              icon={<CreditCard size={17} className="text-amber-400" />} 
+              label={language === 'bn' ? 'সাবস্ক্রিপশন ও পেমেন্ট গেটওয়ে' : 'Subscription & Plans'} 
+              badge={currentSubscription?.status === 'active' ? currentSubscription.planName : 'PRO'}
+              active={activeTab === 'subscription'} 
+              onClick={() => setActiveTab('subscription')} 
+            />
+            <NavItem 
+              icon={<User size={17} className="text-emerald-400" />} 
+              label={currentUser ? `${currentUser.name}` : (language === 'bn' ? 'ইউজার লগইন ও অ্যাকাউন্ট' : 'User Login & Account')} 
+              badge={currentUser ? 'Signed In' : 'Login'}
+              active={isAuthModalOpen} 
+              onClick={() => setIsAuthModalOpen(true)} 
+            />
           </div>
 
           {/* Group 1: VAT & Mushak Suite */}
@@ -830,6 +874,8 @@ export default function App() {
             </button>
             {openSidebarGroups.compliance && (
               <div className="mt-1 space-y-1">
+                <NavItem icon={<CreditCard size={16} className="text-amber-400" />} label={language === 'bn' ? 'সাবস্ক্রিপশন ও লাইসেন্স প্ল্যান' : 'Subscription & Plans'} badge="PRO" active={activeTab === 'subscription'} onClick={() => setActiveTab('subscription')} />
+                <NavItem icon={<User size={16} className="text-emerald-400" />} label={language === 'bn' ? 'ইউজার লগইন ও প্রোফাইল' : 'Taxpayer Login & Profile'} badge={currentUser ? 'Active' : 'MVP'} active={isAuthModalOpen} onClick={() => setIsAuthModalOpen(true)} />
                 <NavItem icon={<Calendar size={16} />} label={language === 'bn' ? 'রিটার্ন ডেডলাইন ক্যালেন্ডার' : 'Deadline Calendar'} badge="MVP" active={activeTab === 'compliance-calendar'} onClick={() => setActiveTab('compliance-calendar')} />
                 <NavItem icon={<BarChart3 size={16} />} label={language === 'bn' ? 'অটোমেটেড রিপোর্ট ও এক্সপোর্ট' : 'Automated Reports'} badge="MVP" active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
                 <NavItem icon={<History size={16} />} label={language === 'bn' ? 'ইউজার অ্যাকাউন্ট ও হিস্ট্রি' : 'Account & Filing History'} badge="MVP" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
@@ -893,21 +939,23 @@ export default function App() {
 
           <div className="flex items-center justify-between px-2 pt-1 text-[11px] text-zinc-400">
             <button
-              onClick={() => setActiveTab('history')}
-              className="flex items-center gap-2 hover:text-white transition-colors"
+              onClick={() => setIsAuthModalOpen(true)}
+              className="flex items-center gap-2 hover:text-white transition-colors truncate"
             >
-              <span className={cn("w-2 h-2 rounded-full", isGoogleAuthenticated ? "bg-emerald-400" : "bg-amber-400")} />
-              <span className="font-semibold">
-                {isGoogleAuthenticated
-                  ? (language === 'bn' ? 'অ্যাকাউন্ট সংযুক্ত' : 'Account Connected')
-                  : (language === 'bn' ? 'ইউজার অ্যাকাউন্ট' : 'User Account')}
+              <span className={cn("w-2 h-2 rounded-full shrink-0", (currentUser || isGoogleAuthenticated) ? "bg-emerald-400" : "bg-amber-400")} />
+              <span className="font-semibold truncate">
+                {currentUser
+                  ? currentUser.name
+                  : isGoogleAuthenticated
+                    ? (language === 'bn' ? 'অ্যাকাউন্ট সংযুক্ত' : 'Account Connected')
+                    : (language === 'bn' ? 'ইউজার লগইন' : 'Taxpayer Login')}
               </span>
             </button>
             <button
               onClick={() => setActiveTab('subscription')}
-              className="font-mono text-[10px] text-amber-400 hover:underline uppercase"
+              className="px-2 py-0.5 rounded bg-amber-400/15 border border-amber-400/30 font-mono text-[10px] font-bold text-amber-400 hover:bg-amber-400 hover:text-zinc-950 transition-all uppercase shrink-0"
             >
-              PRO PLAN
+              {currentSubscription?.status === 'active' ? `${currentSubscription.planName} PLAN` : 'SUBSCRIPTION'}
             </button>
           </div>
         </div>
@@ -969,17 +1017,39 @@ export default function App() {
               </span>
             </button>
 
-            {/* User Account / Google Connect Button */}
+            {/* Subscription & Plans Button */}
             <button
-              onClick={() => (isGoogleAuthenticated ? setActiveTab('history') : handleGoogleConnect())}
-              className="flex items-center gap-2 px-3.5 py-2.5 bg-white hover:bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800 transition-all"
-              title="User Account & Filing History"
+              onClick={() => setActiveTab('subscription')}
+              className={cn(
+                "flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-black transition-all border",
+                activeTab === 'subscription'
+                  ? "bg-amber-400 text-zinc-950 border-amber-500 shadow-md"
+                  : "bg-zinc-950 text-amber-400 border-amber-500/40 hover:bg-zinc-900"
+              )}
+              title="Subscription Plans & Multi-Channel Payment Gateway"
             >
-              <span className={cn("w-2 h-2 rounded-full", isGoogleAuthenticated ? "bg-emerald-500" : "bg-amber-500")} />
+              <CreditCard size={15} />
               <span>
-                {isGoogleAuthenticated
-                  ? (language === 'bn' ? 'অ্যাকাউন্ট সক্রিয়' : 'Account Synced')
-                  : (language === 'bn' ? 'অ্যাকাউন্ট লগইন' : 'User Login')}
+                {currentSubscription?.status === 'active'
+                  ? (language === 'bn' ? `সাবস্ক্রিপশন (${currentSubscription.planName})` : `${currentSubscription.planName} Active`)
+                  : (language === 'bn' ? 'সাবস্ক্রিপশন ও প্ল্যান' : 'Subscription')}
+              </span>
+            </button>
+
+            {/* User Account / Login Facility Button */}
+            <button
+              onClick={() => setIsAuthModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2.5 bg-white hover:bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800 transition-all shadow-sm"
+              title="Taxpayer Account, Login & Registration"
+            >
+              <span className={cn("w-2 h-2 rounded-full", (currentUser || isGoogleAuthenticated) ? "bg-emerald-500" : "bg-amber-500")} />
+              <User size={14} className="text-zinc-600" />
+              <span>
+                {currentUser
+                  ? currentUser.name
+                  : isGoogleAuthenticated
+                    ? (language === 'bn' ? 'অ্যাকাউন্ট সক্রিয়' : 'Account Synced')
+                    : (language === 'bn' ? 'অ্যাকাউন্ট লগইন' : 'User Login')}
               </span>
             </button>
 
@@ -1191,6 +1261,26 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* Taxpayer Login, Registration & Account Modal */}
+      <AuthAccountModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        currentUser={currentUser}
+        subscription={currentSubscription}
+        language={language}
+        onAuthSuccess={(user, sub) => {
+          setCurrentUser(user);
+          setIsGoogleAuthenticated(true);
+          if (sub) setCurrentSubscription(sub);
+        }}
+        onLogout={() => {
+          setCurrentUser(null);
+          setIsGoogleAuthenticated(false);
+        }}
+        onNavigateToSubscription={() => setActiveTab('subscription')}
+        onNavigateToHistory={() => setActiveTab('history')}
+      />
     </div>
   );
 }

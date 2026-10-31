@@ -81,6 +81,7 @@ declare global {
     interface Request {
       session: {
         tokens?: any;
+        userId?: number;
       } | null;
     }
   }
@@ -464,6 +465,23 @@ db.exec(`
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    phone TEXT,
+    tin TEXT,
+    bin TEXT,
+    companyName TEXT,
+    role TEXT DEFAULT 'Taxpayer',
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  INSERT INTO users (name, email, password, phone, tin, bin, companyName, role)
+  SELECT 'Abdur Rahman FCA', 'taxpayer@vatx.bd', '123456', '01712345678', '198475632109', '003891048-0101', 'Rahman & Associates Ltd.', 'Corporate Taxpayer'
+  WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = 'taxpayer@vatx.bd');
+
   CREATE TABLE IF NOT EXISTS ocr_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sourceType TEXT DEFAULT 'social_media',
@@ -718,7 +736,131 @@ async function startServer() {
   });
 
   app.get("/api/auth/status", (req, res) => {
-    res.json({ isAuthenticated: !!req.session?.tokens });
+    const userId = req.session?.userId;
+    let user = null;
+    if (userId) {
+      user = db.prepare("SELECT id, name, email, phone, tin, bin, companyName, role, createdAt FROM users WHERE id = ?").get(userId) as any;
+    }
+    const activeSub = db.prepare("SELECT * FROM subscriptions ORDER BY createdAt DESC LIMIT 1").get() as any;
+    res.json({
+      isAuthenticated: Boolean(req.session?.tokens || user),
+      isGoogleConnected: Boolean(req.session?.tokens),
+      user: user || null,
+      subscription: activeSub || { status: 'none', planName: 'Standard' }
+    });
+  });
+
+  app.get("/api/auth/me", (req, res) => {
+    const userId = req.session?.userId;
+    let user = null;
+    if (userId) {
+      user = db.prepare("SELECT id, name, email, phone, tin, bin, companyName, role, createdAt FROM users WHERE id = ?").get(userId) as any;
+    }
+    const activeSub = db.prepare("SELECT * FROM subscriptions ORDER BY createdAt DESC LIMIT 1").get() as any;
+    res.json({
+      isAuthenticated: Boolean(user || req.session?.tokens),
+      user,
+      subscription: activeSub || { status: 'none', planName: 'Standard' }
+    });
+  });
+
+  app.post("/api/auth/login", (req, res) => {
+    try {
+      const { identifier, email, password, isDemo } = req.body;
+      const loginKey = (identifier || email || '').trim();
+
+      let user: any = null;
+      if (isDemo) {
+        user = db.prepare("SELECT * FROM users WHERE email = 'taxpayer@vatx.bd' LIMIT 1").get();
+      } else {
+        if (!loginKey || !password) {
+          return res.status(400).json({ error: "Email/e-TIN and password are required" });
+        }
+        user = db.prepare(`
+          SELECT * FROM users 
+          WHERE (LOWER(email) = LOWER(?) OR phone = ? OR tin = ?) AND password = ?
+          LIMIT 1
+        `).get(loginKey, loginKey, loginKey, password);
+      }
+
+      if (!user) {
+        return res.status(401).json({ error: "Invalid credentials. Please check your Email/TIN and password, or use Demo Taxpayer Login." });
+      }
+
+      if (req.session) {
+        req.session.userId = user.id;
+      }
+
+      const activeSub = db.prepare("SELECT * FROM subscriptions ORDER BY createdAt DESC LIMIT 1").get() as any;
+      const { password: _pw, ...safeUser } = user;
+
+      res.json({
+        success: true,
+        user: safeUser,
+        subscription: activeSub || { status: 'none', planName: 'Standard' }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/auth/register", (req, res) => {
+    try {
+      const { name, email, password, phone = '', tin = '', bin = '', companyName = '', role = 'Taxpayer' } = req.body;
+      if (!name || !email || !password) {
+        return res.status(400).json({ error: "Name, email, and password are required" });
+      }
+
+      const existing = db.prepare("SELECT id FROM users WHERE LOWER(email) = LOWER(?)").get(email.trim());
+      if (existing) {
+        return res.status(400).json({ error: "An account with this email already exists. Please sign in." });
+      }
+
+      const stmt = db.prepare(`
+        INSERT INTO users (name, email, password, phone, tin, bin, companyName, role)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(name.trim(), email.trim().toLowerCase(), password, phone.trim(), tin.trim(), bin.trim(), companyName.trim(), role);
+      const newUser = db.prepare("SELECT id, name, email, phone, tin, bin, companyName, role, createdAt FROM users WHERE id = ?").get(info.lastInsertRowid) as any;
+
+      if (req.session) {
+        req.session.userId = newUser.id;
+      }
+
+      const activeSub = db.prepare("SELECT * FROM subscriptions ORDER BY createdAt DESC LIMIT 1").get() as any;
+
+      res.json({
+        success: true,
+        user: newUser,
+        subscription: activeSub || { status: 'none', planName: 'Standard' }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/auth/profile", (req, res) => {
+    try {
+      const userId = req.session?.userId || req.body.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not logged in" });
+      }
+      const { name, phone, tin, bin, companyName } = req.body;
+      db.prepare(`
+        UPDATE users 
+        SET name = COALESCE(?, name),
+            phone = COALESCE(?, phone),
+            tin = COALESCE(?, tin),
+            bin = COALESCE(?, bin),
+            companyName = COALESCE(?, companyName)
+        WHERE id = ?
+      `).run(name, phone, tin, bin, companyName, userId);
+
+      const updatedUser = db.prepare("SELECT id, name, email, phone, tin, bin, companyName, role, createdAt FROM users WHERE id = ?").get(userId);
+      res.json({ success: true, user: updatedUser });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.post("/api/auth/logout", (req, res) => {
