@@ -83,6 +83,9 @@ import {
   Cloud,
   RefreshCw,
   ScanText,
+  FileSpreadsheet,
+  Clock,
+  AlarmClock
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
@@ -115,6 +118,7 @@ import ERPNextIntegration from './components/ERPNextIntegration';
 import VatAgentPortal from './components/VatAgentPortal';
 import NBRMarkupScriptHub from './components/NBRMarkupScriptHub';
 import { NBRScriptModal } from './components/NBRScriptModal';
+import { PaymentGatewayModal } from './components/PaymentGatewayModal';
 import { generatePrivateSalaryLedgerScript, generateTRMSScript, generateUniversalETaxScript, formatNBRDate } from './utils/nbrScriptGenerator';
 import { parseRobustJson } from './utils/robustJsonParser';
 import { clsx, type ClassValue } from 'clsx';
@@ -209,8 +213,12 @@ import TRMSAssistant from './components/TRMSAssistant';
 import CorporateTaxAssistant from './components/CorporateTaxAssistant';
 import NotificationCenter from './components/NotificationCenter';
 import OcrTool from './components/OcrTool';
+import AllInOneInvoiceOCR from './components/AllInOneInvoiceOCR';
+import DocumentScanner from './components/DocumentScanner';
+import MVPFeaturesHub from './components/MVPFeaturesHub';
+import CommandPalette from './components/CommandPalette';
 
-type Tab = 'dashboard' | 'nbr-script-markup' | 'ocr' | 'vat' | 'tax' | 'tariff' | 'manifest' | 'reports' | 'blog' | 'tools' | 'ai' | 'invoice' | 'history' | 'notices' | 'rebate' | 'hscode' | 'subscription' | 'crypto-tax' | 'blockchain-verify' | 'tokenized-cert' | 'tax-advisory' | 'zakat' | 'final-tax' | 'developer' | 'documents' | 'critical-vat' | 'help' | 'social' | 'base' | 'x-scraper' | 'whatsapp' | 'odoo' | 'dropbox' | 'odoo-erp' | 'erpnext' | 'vat-agents' | 'live-agent' | 'donation' | 'vds-tracker' | 'tds-tracker' | 'compliance-calendar' | 'agent-marketplace' | 'challan-verify' | 'mfs-payment' | 'trms-extractor' | 'corporate-tax' | 'ocr-automation' | 'law-updates' | 'vat-ocr' | 'tax-ocr';
+type Tab = 'dashboard' | 'nbr-script-markup' | 'ocr' | 'scanner' | 'vat' | 'tax' | 'tariff' | 'manifest' | 'reports' | 'blog' | 'tools' | 'ai' | 'invoice' | 'history' | 'notices' | 'rebate' | 'hscode' | 'subscription' | 'crypto-tax' | 'blockchain-verify' | 'tokenized-cert' | 'tax-advisory' | 'zakat' | 'final-tax' | 'developer' | 'documents' | 'critical-vat' | 'help' | 'social' | 'base' | 'x-scraper' | 'whatsapp' | 'odoo' | 'dropbox' | 'odoo-erp' | 'erpnext' | 'vat-agents' | 'live-agent' | 'donation' | 'vds-tracker' | 'tds-tracker' | 'compliance-calendar' | 'agent-marketplace' | 'challan-verify' | 'mfs-payment' | 'trms-extractor' | 'corporate-tax' | 'ocr-automation' | 'law-updates' | 'vat-ocr' | 'tax-ocr' | 'batch-invoice-ocr' | 'mvp-hub';
 
 interface TaxNotice {
   id: number;
@@ -237,9 +245,64 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [prefilledInvoice, setPrefilledInvoice] = useState<any>(null);
   const [isGoogleAuthenticated, setIsGoogleAuthenticated] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [upcomingAlertsPreview, setUpcomingAlertsPreview] = useState<any[]>([]);
+  const [openSidebarGroups, setOpenSidebarGroups] = useState<Record<string, boolean>>({
+    vat: true,
+    tax: true,
+    docs: true,
+    ai: false,
+    compliance: false,
+    enterprise: false
+  });
+
+  const toggleSidebarGroup = (groupKey: string) => {
+    setOpenSidebarGroups(prev => ({ ...prev, [groupKey]: !prev[groupKey] }));
+  };
+
+  useEffect(() => {
+    const groupMap: Record<string, Tab[]> = {
+      vat: ['critical-vat', 'vat', 'vds-tracker', 'challan-verify', 'batch-invoice-ocr', 'vat-agents', 'vat-ocr'],
+      tax: ['nbr-script-markup', 'tax', 'corporate-tax', 'trms-extractor', 'tds-tracker', 'final-tax', 'rebate', 'zakat', 'tax-ocr'],
+      docs: ['scanner', 'ocr', 'documents'],
+      ai: ['ai', 'tax-advisory', 'hscode'],
+      compliance: ['compliance-calendar', 'reports', 'mfs-payment', 'history', 'notices'],
+      enterprise: ['invoice', 'odoo', 'odoo-erp', 'erpnext', 'dropbox', 'base', 'crypto-tax', 'blockchain-verify', 'tokenized-cert', 'blog', 'social', 'whatsapp', 'x-scraper', 'donation', 'help']
+    };
+    for (const [grp, tabs] of Object.entries(groupMap)) {
+      if (tabs.includes(activeTab)) {
+        setOpenSidebarGroups(prev => ({ ...prev, [grp]: true }));
+        break;
+      }
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
+
+  const fetchUpcomingAlertsPreview = async () => {
+    try {
+      const res = await fetch('/api/compliance/upcoming-alerts?days=7');
+      if (res.ok) {
+        const data = await res.json();
+        setUpcomingAlertsPreview(data.alerts || []);
+      }
+    } catch (e) {
+      console.error('Failed to load upcoming alerts preview', e);
+    }
+  };
 
   useEffect(() => {
     checkGoogleAuth();
+    fetchUpcomingAlertsPreview();
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
         setIsGoogleAuthenticated(true);
@@ -366,36 +429,50 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FBFBFA] text-zinc-900 font-sans selection:bg-brand-100 selection:text-brand-900 pb-20 md:pb-0">
+    <div className="min-h-screen bg-[#F4F5F7] text-zinc-900 font-sans selection:bg-amber-200 selection:text-zinc-950 pb-20 md:pb-0">
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        language={language}
+        onSelectTab={(tab) => setActiveTab(tab as Tab)}
+        onOpenLiveAgent={() => setShowLiveAgent(true)}
+      />
       {/* Mobile Header */}
-      <header className="fixed top-0 left-0 right-0 h-16 bg-white/80 backdrop-blur-xl border-b border-zinc-100 z-[60] flex items-center justify-between px-6 md:hidden">
+      <header className="fixed top-0 left-0 right-0 h-16 bg-[#090D16]/95 backdrop-blur-xl border-b border-zinc-800 z-[60] flex items-center justify-between px-4 md:hidden text-white">
         <div className="flex items-center gap-2">
           <div className="relative w-8 h-8 flex items-center justify-center shrink-0">
-            <div className="absolute inset-0 bg-gradient-to-br from-[#E6B93E] via-[#FFD700] to-[#B8860B] rounded-lg shadow-md" />
+            <div className="absolute inset-0 bg-gradient-to-br from-amber-400 via-amber-500 to-yellow-600 rounded-lg shadow-md" />
             <div className="relative w-4 h-4 flex items-center justify-center">
-              <div className="absolute left-0 top-0 w-[45%] h-full bg-[#001D4A] rounded-full origin-bottom rotate-[-25deg] translate-x-0.5" />
-              <div className="absolute right-0 top-0 w-[45%] h-full bg-[#00A8E8] rounded-full origin-bottom rotate-[25deg] -translate-x-0.5" />
+              <div className="absolute left-0 top-0 w-[45%] h-full bg-[#090D16] rounded-full origin-bottom rotate-[-25deg] translate-x-0.5" />
+              <div className="absolute right-0 top-0 w-[45%] h-full bg-sky-500 rounded-full origin-bottom rotate-[25deg] -translate-x-0.5" />
             </div>
           </div>
           <div className="flex items-baseline gap-0.5 font-display">
-            <span className="text-lg font-black tracking-tighter text-[#001D4A]">VAT</span>
-            <span className="text-lg font-black tracking-tighter text-[#00A8E8]">X</span>
-            <span className="text-lg font-black tracking-tighter text-zinc-400">.BD</span>
+            <span className="text-lg font-black tracking-tighter text-white">VAT</span>
+            <span className="text-lg font-black tracking-tighter text-amber-400">X</span>
+            <span className="text-xs font-mono font-bold text-zinc-400">.BD</span>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button 
-            onClick={() => setShowNoticesDropdown(!showNoticesDropdown)}
-            className="p-2 text-zinc-500 relative"
+            onClick={() => setIsCommandPaletteOpen(true)}
+            className="p-2 text-amber-400 hover:bg-zinc-800 rounded-lg"
+            title="Search Tools"
           >
-            <Bell size={20} />
-            {notices.length > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />}
+            <Search size={19} />
+          </button>
+          <button 
+            onClick={() => setActiveTab('law-updates')}
+            className="p-2 text-zinc-300 relative hover:bg-zinc-800 rounded-lg"
+          >
+            <Bell size={19} />
+            {upcomingAlertsPreview.length > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-amber-400 rounded-full" />}
           </button>
           <button 
             onClick={() => setIsMobileMenuOpen(true)}
-            className="p-2 text-zinc-900"
+            className="p-2 text-white hover:bg-zinc-800 rounded-lg"
           >
-            <Menu size={24} />
+            <Menu size={22} />
           </button>
         </div>
       </header>
@@ -409,52 +486,55 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsMobileMenuOpen(false)}
-              className="fixed inset-0 bg-zinc-900/60 backdrop-blur-sm z-[100] md:hidden"
+              className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] md:hidden"
             />
             <motion.aside 
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed left-0 top-0 bottom-0 w-[85%] max-w-sm bg-white z-[110] md:hidden flex flex-col shadow-2xl"
+              className="fixed left-0 top-0 bottom-0 w-[85%] max-w-sm bg-[#090D16] text-zinc-100 border-r border-zinc-800 z-[110] md:hidden flex flex-col shadow-2xl"
             >
-              <div className="p-8 flex items-center justify-between">
+              <div className="p-6 flex items-center justify-between border-b border-zinc-800">
                 <div className="flex items-center gap-3">
-                  <div className="relative w-10 h-10 flex items-center justify-center shrink-0">
-                    <div className="absolute inset-0 bg-gradient-to-br from-[#E6B93E] via-[#FFD700] to-[#B8860B] rounded-xl shadow-md" />
-                    <div className="relative w-6 h-6 flex items-center justify-center">
-                      <div className="absolute left-0 top-0 w-[45%] h-full bg-[#001D4A] rounded-full origin-bottom rotate-[-25deg] translate-x-0.5" />
-                      <div className="absolute right-0 top-0 w-[45%] h-full bg-[#00A8E8] rounded-full origin-bottom rotate-[25deg] -translate-x-0.5" />
+                  <div className="relative w-9 h-9 flex items-center justify-center shrink-0">
+                    <div className="absolute inset-0 bg-gradient-to-br from-amber-400 via-amber-500 to-yellow-600 rounded-xl shadow-md" />
+                    <div className="relative w-5 h-5 flex items-center justify-center">
+                      <div className="absolute left-0 top-0 w-[45%] h-full bg-[#090D16] rounded-full origin-bottom rotate-[-25deg] translate-x-0.5" />
+                      <div className="absolute right-0 top-0 w-[45%] h-full bg-sky-500 rounded-full origin-bottom rotate-[25deg] -translate-x-0.5" />
                     </div>
                   </div>
                   <div className="flex items-baseline gap-0.5 font-display">
-                    <span className="text-xl font-black tracking-tighter text-[#001D4A]">VAT</span>
-                    <span className="text-xl font-black tracking-tighter text-[#00A8E8]">X</span>
-                    <span className="text-xl font-black tracking-tighter text-zinc-400">.BD</span>
+                    <span className="text-xl font-black tracking-tighter text-white">VAT</span>
+                    <span className="text-xl font-black tracking-tighter text-amber-400">X</span>
+                    <span className="text-xs font-mono font-bold text-zinc-400">.BD</span>
                   </div>
                 </div>
-                <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 text-zinc-400">
-                  <X size={24} />
+                <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 text-zinc-400 hover:text-white">
+                  <X size={22} />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto px-6 pb-12 custom-scrollbar">
-                <nav className="space-y-8">
+              <div className="flex-1 overflow-y-auto px-4 py-6 pb-12 custom-scrollbar">
+                <nav className="space-y-6">
                   {isDeveloper && (
                     <div>
-                      <p className="px-4 text-[10px] font-black text-brand-600 uppercase tracking-widest mb-4">Developer Mode</p>
+                      <p className="px-3 text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest mb-2">Developer Mode</p>
                       <div className="space-y-1">
-                        <NavItem icon={<Cpu size={18} />} label="Control Panel" active={activeTab === 'developer'} onClick={() => { setActiveTab('developer'); setIsMobileMenuOpen(false); }} />
+                        <NavItem icon={<Cpu size={16} />} label="Control Panel" active={activeTab === 'developer'} onClick={() => { setActiveTab('developer'); setIsMobileMenuOpen(false); }} />
                       </div>
                     </div>
                   )}
                   
                   <div>
-                    <p className="px-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-4">Overview</p>
+                    <p className="px-3 text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-widest mb-2">Command Center</p>
                     <div className="space-y-1">
-                      <NavItem icon={<BarChart3 size={18} />} label={t.dashboard} active={activeTab === 'dashboard'} onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }} />
-                      <NavItem icon={<FileCode size={18} className="text-emerald-500" />} label={t.nbrScriptMarkup || "NBR Script from Markup"} badge="Featured" active={activeTab === 'nbr-script-markup'} onClick={() => { setActiveTab('nbr-script-markup'); setIsMobileMenuOpen(false); }} />
-                      <NavItem icon={<ScanText size={18} className="text-emerald-500" />} label={language === 'bn' ? 'ফ্রি বাংলা OCR' : 'Free Bengali OCR'} badge="Free" active={activeTab === 'ocr'} onClick={() => { setActiveTab('ocr'); setIsMobileMenuOpen(false); }} />
-                      <NavItem icon={<FileSearch size={18} />} label={t.documents} badge="Smart" active={activeTab === 'documents'} onClick={() => { setActiveTab('documents'); setIsMobileMenuOpen(false); }} />
+                      <NavItem icon={<BarChart3 size={16} />} label={t.dashboard} active={activeTab === 'dashboard'} onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }} />
+                      <NavItem icon={<ShieldCheck size={16} className="text-amber-400" />} label={language === 'bn' ? 'এমভিপি ফিচার হাব' : 'MVP Features Hub'} badge="11/11" active={activeTab === 'mvp-hub'} onClick={() => { setActiveTab('mvp-hub'); setIsMobileMenuOpen(false); }} />
+                      <NavItem icon={<Bell size={16} className="text-rose-400" />} label={language === 'bn' ? '৭-দিনের ডেডলাইন অ্যালার্ট' : '7-Day Deadline Alerts'} badge="Live" active={activeTab === 'law-updates'} onClick={() => { setActiveTab('law-updates'); setIsMobileMenuOpen(false); }} />
+                      <NavItem icon={<Camera size={16} className="text-emerald-400" />} label={t.documentScanner || (language === 'bn' ? 'ডকুমেন্ট স্ক্যানার ও PDF' : 'Document Scanner & PDF')} badge="Live" active={activeTab === 'scanner'} onClick={() => { setActiveTab('scanner'); setIsMobileMenuOpen(false); }} />
+                      <NavItem icon={<FileCode size={16} className="text-emerald-400" />} label={t.nbrScriptMarkup || "NBR Script from Markup"} badge="Star" active={activeTab === 'nbr-script-markup'} onClick={() => { setActiveTab('nbr-script-markup'); setIsMobileMenuOpen(false); }} />
+                      <NavItem icon={<ScanText size={16} className="text-emerald-400" />} label={language === 'bn' ? 'ফ্রি বাংলা OCR' : 'Free Bengali OCR'} badge="Free" active={activeTab === 'ocr'} onClick={() => { setActiveTab('ocr'); setIsMobileMenuOpen(false); }} />
+                      <NavItem icon={<FileSearch size={16} />} label={t.documents} badge="Smart" active={activeTab === 'documents'} onClick={() => { setActiveTab('documents'); setIsMobileMenuOpen(false); }} />
                     </div>
                   </div>
 
@@ -477,6 +557,7 @@ export default function App() {
                       <NavItem icon={<ShieldCheck size={18} />} label="Challan Verify" active={activeTab === 'challan-verify'} onClick={() => { setActiveTab('challan-verify'); setIsMobileMenuOpen(false); }} />
                       <NavItem icon={<Building2 size={18} />} label={t.vatAgents} active={activeTab === 'vat-agents'} onClick={() => { setActiveTab('vat-agents'); setIsMobileMenuOpen(false); }} />
                       <NavItem icon={<FileSearch size={18} />} label={t.vatOcr} active={activeTab === 'vat-ocr'} onClick={() => { setActiveTab('vat-ocr'); setIsMobileMenuOpen(false); }} />
+                      <NavItem icon={<FileSpreadsheet size={18} className="text-blue-500" />} label={language === 'bn' ? 'ব্যাচ ইনভয়েস স্ক্যানার' : 'Batch Invoice OCR'} badge="New" active={activeTab === 'batch-invoice-ocr'} onClick={() => { setActiveTab('batch-invoice-ocr'); setIsMobileMenuOpen(false); }} />
                     </div>
                   </div>
 
@@ -569,365 +650,266 @@ export default function App() {
         </button>
       </nav>
 
-      {/* Sidebar (Desktop) */}
-      <aside className="fixed left-0 top-0 h-full w-72 bg-white border-r border-zinc-100 z-50 hidden md:flex flex-col">
-        <div 
-          className="p-8 flex items-center gap-3 cursor-pointer group"
-          onClick={handleLogoClick}
-        >
-          <div className="relative w-12 h-12 flex items-center justify-center shrink-0">
-            {/* Gold Background with subtle gradient */}
-            <div className="absolute inset-0 bg-gradient-to-br from-[#E6B93E] via-[#FFD700] to-[#B8860B] rounded-2xl shadow-lg shadow-yellow-500/20 group-hover:shadow-yellow-500/40 transition-shadow duration-300 rotate-3 group-hover:rotate-0" />
-            
-            {/* Stylized V using vector bars */}
-            <div className="relative w-7 h-7 flex items-center justify-center">
-              <div className="absolute left-0 top-0 w-[45%] h-full bg-[#001D4A] rounded-full origin-bottom rotate-[-25deg] translate-x-1" />
-              <div className="absolute right-0 top-0 w-[45%] h-full bg-[#00A8E8] rounded-full origin-bottom rotate-[25deg] -translate-x-1" />
+      {/* Sidebar (Desktop - Modern Dark Fintech Carbon & Amber) */}
+      <aside className="fixed left-0 top-0 h-full w-72 bg-[#090D16] text-zinc-100 border-r border-zinc-800/80 z-50 hidden md:flex flex-col">
+        {/* Brand Header */}
+        <div className="px-6 pt-6 pb-4 border-b border-zinc-800/80 space-y-4">
+          <div 
+            className="flex items-center justify-between cursor-pointer group"
+            onClick={handleLogoClick}
+          >
+            <div className="flex items-center gap-3">
+              <div className="relative w-10 h-10 flex items-center justify-center shrink-0">
+                <div className="absolute inset-0 bg-gradient-to-br from-amber-400 via-amber-500 to-yellow-600 rounded-xl shadow-lg shadow-amber-500/20 group-hover:shadow-amber-500/40 transition-all duration-300" />
+                <div className="relative w-6 h-6 flex items-center justify-center">
+                  <div className="absolute left-0 top-0 w-[45%] h-full bg-[#090D16] rounded-full origin-bottom rotate-[-25deg] translate-x-0.5" />
+                  <div className="absolute right-0 top-0 w-[45%] h-full bg-sky-500 rounded-full origin-bottom rotate-[25deg] -translate-x-0.5" />
+                </div>
+              </div>
+              <div className="flex flex-col">
+                <div className="flex items-baseline gap-0.5 font-display">
+                  <span className="text-xl font-black tracking-tighter text-white">VAT</span>
+                  <span className="text-xl font-black tracking-tighter text-amber-400">X</span>
+                  <span className="text-sm font-mono font-bold text-zinc-500">.BD</span>
+                </div>
+                <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">
+                  {language === 'bn' ? 'এনবিআর ট্যাক্স ও ভ্যাট ওএস' : 'NBR FINTECH OS'}
+                </span>
+              </div>
             </div>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+              v2.6
+            </span>
           </div>
-          <div className="flex flex-col">
-            <div className="flex items-baseline gap-0.5 font-display">
-              <span className="text-xl font-black tracking-tighter text-[#001D4A]">VAT</span>
-              <span className="text-xl font-black tracking-tighter text-[#00A8E8]">X</span>
-              <span className="text-xl font-black tracking-tighter text-zinc-300">.BD</span>
-            </div>
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">{t.compliance}</span>
-          </div>
+
+          {/* Quick Command Palette Trigger (⌘K) */}
+          <button
+            onClick={() => setIsCommandPaletteOpen(true)}
+            className="w-full flex items-center justify-between px-3.5 py-2.5 bg-zinc-900/90 hover:bg-zinc-800/90 border border-zinc-800 hover:border-amber-400/40 rounded-xl text-xs text-zinc-400 hover:text-zinc-200 transition-all group"
+          >
+            <span className="flex items-center gap-2 truncate">
+              <Search size={14} className="text-amber-400 shrink-0" />
+              <span className="truncate">{language === 'bn' ? 'যেকোনো টুল খুঁজুন...' : 'Quick Command...'}</span>
+            </span>
+            <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-zinc-950 text-zinc-400 rounded border border-zinc-800 shrink-0">
+              ⌘K
+            </kbd>
+          </button>
         </div>
 
-        <nav className="flex-1 mt-4 px-6 space-y-1 overflow-y-auto custom-scrollbar">
+        {/* Categorized Collapsible Navigation */}
+        <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto custom-scrollbar">
           {isDeveloper && (
-            <div className="pb-4 mb-4 border-b border-brand-100">
-              <p className="px-4 text-[10px] font-black text-brand-600 uppercase tracking-widest mb-4">Developer Mode</p>
+            <div className="pb-3 mb-2 border-b border-zinc-800">
+              <p className="px-3 text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest mb-2">Developer Mode</p>
               <NavItem 
-                icon={<Cpu size={18} />} 
-                label="Control Panel" 
+                icon={<Cpu size={16} />} 
+                label="Admin Control Panel" 
                 active={activeTab === 'developer'} 
                 onClick={() => setActiveTab('developer')} 
               />
             </div>
           )}
 
-          <div className="pb-4">
-            <p className="px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4">Overview</p>
+          {/* Pinned Core Command Center */}
+          <div className="space-y-1">
+            <p className="px-3 text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-widest mb-1.5">
+              {language === 'bn' ? 'কমান্ড সেন্টার' : 'Command Center'}
+            </p>
             <NavItem 
-              icon={<BarChart3 size={18} />} 
-              label={t.dashboard} 
+              icon={<BarChart3 size={17} />} 
+              label={language === 'bn' ? 'এক্সিকিউটিভ ড্যাশবোর্ড' : 'Executive Dashboard'} 
               active={activeTab === 'dashboard'} 
               onClick={() => setActiveTab('dashboard')} 
             />
             <NavItem 
-              icon={<FileCode size={18} className="text-emerald-500" />} 
-              label={t.nbrScriptMarkup || "NBR Script from Markup"} 
-              badge="Featured"
-              active={activeTab === 'nbr-script-markup'} 
-              onClick={() => setActiveTab('nbr-script-markup')} 
+              icon={<ShieldCheck size={17} className="text-amber-400" />} 
+              label={language === 'bn' ? 'এমভিপি ফিচার ও চেকলিস্ট' : 'MVP Hub & Checklist'} 
+              badge="11/11"
+              active={activeTab === 'mvp-hub'} 
+              onClick={() => setActiveTab('mvp-hub')} 
             />
             <NavItem 
-              icon={<ScanText size={18} className="text-emerald-500" />} 
-              label={language === 'bn' ? 'ফ্রি বাংলা OCR' : 'Free Bengali OCR'} 
-              badge="Free"
-              active={activeTab === 'ocr'} 
-              onClick={() => setActiveTab('ocr')} 
-            />
-            <NavItem 
-              icon={<FileSearch size={18} />} 
-              label={t.documents} 
-              badge="Smart"
-              active={activeTab === 'documents'} 
-              onClick={() => setActiveTab('documents')} 
-            />
-          </div>
-
-          <div className="py-4 border-t border-zinc-50">
-            <p className="px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4">AI Intelligence</p>
-            <NavItem 
-              icon={<Sparkles size={18} />} 
-              label={t.ai} 
-              badge="AI"
-              active={activeTab === 'ai'} 
-              onClick={() => setActiveTab('ai')} 
-            />
-            <NavItem 
-              icon={<Bot size={18} className="text-indigo-500" />} 
-              label="Gemini Live" 
-              badge="Live"
-              active={showLiveAgent} 
-              onClick={() => setShowLiveAgent(true)} 
-            />
-            <NavItem 
-              icon={<Sparkles size={18} />} 
-              label={t.advisory} 
-              active={activeTab === 'tax-advisory'} 
-              onClick={() => setActiveTab('tax-advisory')} 
-            />
-            <NavItem 
-              icon={<Search size={18} />} 
-              label={t.hscode} 
-              active={activeTab === 'hscode'} 
-              onClick={() => setActiveTab('hscode')} 
-            />
-          </div>
-
-          <div className="py-4 border-t border-zinc-50">
-            <p className="px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4">{t.vatHub}</p>
-            <NavItem 
-              icon={<Receipt size={18} />} 
-              label={t.vat} 
-              active={activeTab === 'vat'} 
-              onClick={() => setActiveTab('vat')} 
-            />
-            <NavItem 
-              icon={<Calculator size={18} />} 
-              label={t.criticalVat} 
-              active={activeTab === 'critical-vat'} 
-              onClick={() => setActiveTab('critical-vat')} 
-            />
-            <NavItem 
-              icon={<ClipboardCheck size={18} />} 
-              label="VDS Tracker" 
-              active={activeTab === 'vds-tracker'} 
-              onClick={() => setActiveTab('vds-tracker')} 
-            />
-            <NavItem 
-              icon={<ShieldCheck size={18} />} 
-              label="Challan Verify" 
-              active={activeTab === 'challan-verify'} 
-              onClick={() => setActiveTab('challan-verify')} 
-            />
-            <NavItem 
-              icon={<Building2 size={18} />} 
-              label={t.vatAgents} 
-              active={activeTab === 'vat-agents'} 
-              onClick={() => setActiveTab('vat-agents')} 
-            />
-            <NavItem 
-              icon={<FileSearch size={18} />} 
-              label={t.vatOcr} 
-              active={activeTab === 'vat-ocr'} 
-              onClick={() => setActiveTab('vat-ocr')} 
-            />
-          </div>
-
-          <div className="py-4 border-t border-zinc-50">
-            <p className="px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4">{t.taxHub}</p>
-            <NavItem 
-              icon={<Calculator size={18} />} 
-              label={t.tax} 
-              active={activeTab === 'tax'} 
-              onClick={() => setActiveTab('tax')} 
-            />
-            <NavItem 
-              icon={<Building2 size={18} />} 
-              label={t.corporateTax} 
-              badge="New"
-              active={activeTab === 'corporate-tax'} 
-              onClick={() => setActiveTab('corporate-tax')} 
-            />
-            <NavItem 
-              icon={<FileSearch size={18} />} 
-              label={t.trmsExtractor} 
-              active={activeTab === 'trms-extractor'} 
-              onClick={() => setActiveTab('trms-extractor')} 
-            />
-            <NavItem 
-              icon={<FileSearch size={18} />} 
-              label={t.taxOcr} 
-              active={activeTab === 'tax-ocr'} 
-              onClick={() => setActiveTab('tax-ocr')} 
-            />
-            <NavItem 
-              icon={<Calculator size={18} />} 
-              label="TDS Tracker" 
-              active={activeTab === 'tds-tracker'} 
-              onClick={() => setActiveTab('tds-tracker')} 
-            />
-            <NavItem 
-              icon={<Shield size={18} />} 
-              label={t.finalTax} 
-              active={activeTab === 'final-tax'} 
-              onClick={() => setActiveTab('final-tax')} 
-            />
-            <NavItem 
-              icon={<TrendingUp size={18} />} 
-              label={t.rebate} 
-              active={activeTab === 'rebate'} 
-              onClick={() => setActiveTab('rebate')} 
-            />
-            <NavItem 
-              icon={<Coins size={18} />} 
-              label={t.zakat} 
-              active={activeTab === 'zakat'} 
-              onClick={() => setActiveTab('zakat')} 
-            />
-          </div>
-
-          <div className="py-4 border-t border-zinc-50">
-            <p className="px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4">Compliance Suite</p>
-            <NavItem 
-              icon={<Calendar size={18} />} 
-              label="Compliance Calendar" 
-              active={activeTab === 'compliance-calendar'} 
-              onClick={() => setActiveTab('compliance-calendar')} 
-            />
-            <NavItem 
-              icon={<Smartphone size={18} />} 
-              label={t['mfs-payment'] || "MFS Payment"} 
-              active={activeTab === 'mfs-payment'} 
-              onClick={() => setActiveTab('mfs-payment')} 
-            />
-          </div>
-
-          <div className="py-4 border-t border-zinc-50">
-            <p className="px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4">Business Suite</p>
-            <NavItem 
-              icon={<Receipt size={18} />} 
-              label={t.invoice} 
-              active={activeTab === 'invoice'} 
-              onClick={() => setActiveTab('invoice')} 
-            />
-            <NavItem 
-              icon={<Settings size={18} />} 
-              label="Odoo Setup" 
-              active={activeTab === 'odoo'} 
-              onClick={() => setActiveTab('odoo')} 
-            />
-            <NavItem 
-              icon={<Database size={18} />} 
-              label="Odoo ERP Integration" 
-              active={activeTab === 'odoo-erp'} 
-              onClick={() => setActiveTab('odoo-erp')} 
-            />
-            <NavItem 
-              icon={<Cpu size={18} />} 
-              label="ERPNext Automation" 
-              active={activeTab === 'erpnext'} 
-              onClick={() => setActiveTab('erpnext')} 
-            />
-            <NavItem 
-              icon={<Folder size={18} />} 
-              label="Dropbox Cloud" 
-              active={activeTab === 'dropbox'} 
-              onClick={() => setActiveTab('dropbox')} 
-            />
-            <NavItem 
-              icon={<Database size={18} />} 
-              label={t.base} 
-              active={activeTab === 'base'} 
-              onClick={() => setActiveTab('base')} 
-            />
-          </div>
-
-          <div className="py-4 border-t border-zinc-50">
-            <p className="px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4">Marketplace & Community</p>
-            <NavItem 
-              icon={<Bell size={18} className="text-amber-500" />} 
-              label={language === 'bn' ? 'আইন আপডেট' : 'Law Updates'} 
+              icon={<Bell size={17} className="text-rose-400" />} 
+              label={language === 'bn' ? '৭-দিনের ডেডলাইন অ্যালার্ট' : '7-Day Deadline Alerts'} 
+              badge={upcomingAlertsPreview.length > 0 ? `${upcomingAlertsPreview.length}` : 'Live'}
               active={activeTab === 'law-updates'} 
               onClick={() => setActiveTab('law-updates')} 
             />
-            <NavItem 
-              icon={<Building2 size={18} />} 
-              label={t.vatAgents} 
-              active={activeTab === 'vat-agents'} 
-              onClick={() => setActiveTab('vat-agents')} 
-            />
-            <NavItem 
-              icon={<FileText size={18} />} 
-              label={t.blog} 
-              active={activeTab === 'blog'} 
-              onClick={() => setActiveTab('blog')} 
-            />
-            <NavItem 
-              icon={<Bell size={18} />} 
-              label={t.notices} 
-              active={activeTab === 'notices'} 
-              onClick={() => setActiveTab('notices')} 
-            />
-            <NavItem 
-              icon={<Heart size={18} />} 
-              label="Donation Centre" 
-              active={activeTab === 'donation'} 
-              onClick={() => setActiveTab('donation')} 
-            />
-            <NavItem 
-              icon={<MessageSquare size={18} />} 
-              label="WhatsApp Automation" 
-              active={activeTab === 'whatsapp'} 
-              onClick={() => setActiveTab('whatsapp')} 
-            />
-            <NavItem 
-              icon={<Share2 size={18} />} 
-              label={t.social} 
-              active={activeTab === 'social'} 
-              onClick={() => setActiveTab('social')} 
-            />
-            <NavItem 
-              icon={<Twitter size={18} />} 
-              label="X Intelligence" 
-              active={activeTab === 'x-scraper'} 
-              onClick={() => setActiveTab('x-scraper')} 
-            />
-            <NavItem 
-              icon={<History size={18} />} 
-              label={t.history} 
-              active={activeTab === 'history'} 
-              onClick={() => setActiveTab('history')} 
-            />
-            <NavItem 
-              icon={<AlertCircle size={18} />} 
-              label={t.help} 
-              active={activeTab === 'help'} 
-              onClick={() => setActiveTab('help')} 
-            />
-            <NavItem 
-              icon={<Code size={18} />} 
-              label="Open Source & Dev" 
-              active={activeTab === 'developer'} 
-              onClick={() => setActiveTab('developer')} 
-            />
           </div>
 
-          <div className="py-4 border-t border-zinc-50">
-            <p className="px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-4">Web3 & Tech</p>
-            <NavItem 
-              icon={<Coins size={18} />} 
-              label={t.crypto} 
-              active={activeTab === 'crypto-tax'} 
-              onClick={() => setActiveTab('crypto-tax')} 
-            />
-            <NavItem 
-              icon={<Fingerprint size={18} />} 
-              label={t.blockchain} 
-              active={activeTab === 'blockchain-verify'} 
-              onClick={() => setActiveTab('blockchain-verify')} 
-            />
-            <NavItem 
-              icon={<Ticket size={18} />} 
-              label={t.tokens} 
-              active={activeTab === 'tokenized-cert'} 
-              onClick={() => setActiveTab('tokenized-cert')} 
-            />
+          {/* Group 1: VAT & Mushak Suite */}
+          <div className="border-t border-zinc-800/70 pt-3">
+            <button
+              onClick={() => toggleSidebarGroup('vat')}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-400 hover:text-white transition-colors"
+            >
+              <span>{language === 'bn' ? '১. ভ্যাট ও মূসক সুইট' : '1. VAT & Mushak Suite'}</span>
+              <ChevronDown size={14} className={cn("transition-transform", openSidebarGroups.vat && "rotate-180 text-amber-400")} />
+            </button>
+            {openSidebarGroups.vat && (
+              <div className="mt-1 space-y-1">
+                <NavItem icon={<Calculator size={16} />} label={language === 'bn' ? 'মূসক ৯.১ রিটার্ন দাখিল' : 'Mushak 9.1 Filing'} badge="MVP" active={activeTab === 'critical-vat'} onClick={() => setActiveTab('critical-vat')} />
+                <NavItem icon={<Receipt size={16} />} label={t.vat} active={activeTab === 'vat'} onClick={() => setActiveTab('vat')} />
+                <NavItem icon={<ClipboardCheck size={16} />} label={language === 'bn' ? 'ভিডিএস ও মূসক ৬.৬ ট্র্যাকার' : 'VDS & Mushak 6.6'} active={activeTab === 'vds-tracker'} onClick={() => setActiveTab('vds-tracker')} />
+                <NavItem icon={<ShieldCheck size={16} />} label={language === 'bn' ? 'চালান ও বিআইএন চেকার' : 'Challan & BIN Checker'} badge="MVP" active={activeTab === 'challan-verify'} onClick={() => setActiveTab('challan-verify')} />
+                <NavItem icon={<FileSpreadsheet size={16} />} label={language === 'bn' ? 'ব্যাচ ইনভয়েস ওসিআর' : 'Batch Invoice OCR'} badge="AI" active={activeTab === 'batch-invoice-ocr'} onClick={() => setActiveTab('batch-invoice-ocr')} />
+                <NavItem icon={<Building2 size={16} />} label={t.vatAgents} active={activeTab === 'vat-agents'} onClick={() => setActiveTab('vat-agents')} />
+              </div>
+            )}
+          </div>
+
+          {/* Group 2: Income Tax & NBR Scripts */}
+          <div className="border-t border-zinc-800/70 pt-3">
+            <button
+              onClick={() => toggleSidebarGroup('tax')}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-400 hover:text-white transition-colors"
+            >
+              <span>{language === 'bn' ? '২. আয়কর ও এনবিআর স্ক্রিপ্ট' : '2. Income Tax & Scripts'}</span>
+              <ChevronDown size={14} className={cn("transition-transform", openSidebarGroups.tax && "rotate-180 text-amber-400")} />
+            </button>
+            {openSidebarGroups.tax && (
+              <div className="mt-1 space-y-1">
+                <NavItem icon={<FileCode size={16} className="text-emerald-400" />} label={language === 'bn' ? 'মার্কআপ থেকে এনবিআর স্ক্রিপ্ট' : 'NBR Script from Markup'} badge="Star" active={activeTab === 'nbr-script-markup'} onClick={() => setActiveTab('nbr-script-markup')} />
+                <NavItem icon={<Calculator size={16} />} label={t.tax} active={activeTab === 'tax'} onClick={() => setActiveTab('tax')} />
+                <NavItem icon={<Building2 size={16} />} label={t.corporateTax} active={activeTab === 'corporate-tax'} onClick={() => setActiveTab('corporate-tax')} />
+                <NavItem icon={<Calculator size={16} />} label="TDS Withholding Tracker" active={activeTab === 'tds-tracker'} onClick={() => setActiveTab('tds-tracker')} />
+                <NavItem icon={<FileSearch size={16} />} label={t.trmsExtractor} active={activeTab === 'trms-extractor'} onClick={() => setActiveTab('trms-extractor')} />
+                <NavItem icon={<Shield size={16} />} label={t.finalTax} active={activeTab === 'final-tax'} onClick={() => setActiveTab('final-tax')} />
+                <NavItem icon={<TrendingUp size={16} />} label={t.rebate} active={activeTab === 'rebate'} onClick={() => setActiveTab('rebate')} />
+                <NavItem icon={<Coins size={16} />} label={t.zakat} active={activeTab === 'zakat'} onClick={() => setActiveTab('zakat')} />
+              </div>
+            )}
+          </div>
+
+          {/* Group 3: Document & OCR Studio */}
+          <div className="border-t border-zinc-800/70 pt-3">
+            <button
+              onClick={() => toggleSidebarGroup('docs')}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-400 hover:text-white transition-colors"
+            >
+              <span>{language === 'bn' ? '৩. ডকুমেন্ট ও ওসিআর স্টুডিও' : '3. Document & OCR Studio'}</span>
+              <ChevronDown size={14} className={cn("transition-transform", openSidebarGroups.docs && "rotate-180 text-amber-400")} />
+            </button>
+            {openSidebarGroups.docs && (
+              <div className="mt-1 space-y-1">
+                <NavItem icon={<FileSearch size={16} />} label={language === 'bn' ? 'ডকুমেন্ট ম্যানেজমেন্ট সেন্টার' : 'Document Management'} badge="MVP" active={activeTab === 'documents'} onClick={() => setActiveTab('documents')} />
+                <NavItem icon={<Camera size={16} />} label={language === 'bn' ? 'স্মার্ট স্ক্যানার ও পিডিএফ' : 'Smart PDF Scanner'} active={activeTab === 'scanner'} onClick={() => setActiveTab('scanner')} />
+                <NavItem icon={<ScanText size={16} />} label={language === 'bn' ? 'ফ্রি বাংলা ওসিআর' : 'Free Bengali OCR'} active={activeTab === 'ocr'} onClick={() => setActiveTab('ocr')} />
+              </div>
+            )}
+          </div>
+
+          {/* Group 4: AI Advisory & Tariff */}
+          <div className="border-t border-zinc-800/70 pt-3">
+            <button
+              onClick={() => toggleSidebarGroup('ai')}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-400 hover:text-white transition-colors"
+            >
+              <span>{language === 'bn' ? '৪. এআই গাইডেন্স ও ট্যারিফ' : '4. AI Guidance & Tariff'}</span>
+              <ChevronDown size={14} className={cn("transition-transform", openSidebarGroups.ai && "rotate-180 text-amber-400")} />
+            </button>
+            {openSidebarGroups.ai && (
+              <div className="mt-1 space-y-1">
+                <NavItem icon={<Sparkles size={16} />} label={t.ai} badge="MVP" active={activeTab === 'ai'} onClick={() => setActiveTab('ai')} />
+                <NavItem icon={<Bot size={16} />} label="Gemini Live Voice" badge="Live" active={showLiveAgent} onClick={() => setShowLiveAgent(true)} />
+                <NavItem icon={<Sparkles size={16} />} label={t.advisory} active={activeTab === 'tax-advisory'} onClick={() => setActiveTab('tax-advisory')} />
+                <NavItem icon={<Search size={16} />} label={t.hscode} active={activeTab === 'hscode'} onClick={() => setActiveTab('hscode')} />
+              </div>
+            )}
+          </div>
+
+          {/* Group 5: Deadlines, Reports & Account */}
+          <div className="border-t border-zinc-800/70 pt-3">
+            <button
+              onClick={() => toggleSidebarGroup('compliance')}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-400 hover:text-white transition-colors"
+            >
+              <span>{language === 'bn' ? '৫. ডেডলাইন, রিপোর্ট ও অ্যাকাউন্ট' : '5. Deadlines & Reports'}</span>
+              <ChevronDown size={14} className={cn("transition-transform", openSidebarGroups.compliance && "rotate-180 text-amber-400")} />
+            </button>
+            {openSidebarGroups.compliance && (
+              <div className="mt-1 space-y-1">
+                <NavItem icon={<Calendar size={16} />} label={language === 'bn' ? 'রিটার্ন ডেডলাইন ক্যালেন্ডার' : 'Deadline Calendar'} badge="MVP" active={activeTab === 'compliance-calendar'} onClick={() => setActiveTab('compliance-calendar')} />
+                <NavItem icon={<BarChart3 size={16} />} label={language === 'bn' ? 'অটোমেটেড রিপোর্ট ও এক্সপোর্ট' : 'Automated Reports'} badge="MVP" active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
+                <NavItem icon={<History size={16} />} label={language === 'bn' ? 'ইউজার অ্যাকাউন্ট ও হিস্ট্রি' : 'Account & Filing History'} badge="MVP" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
+                <NavItem icon={<Smartphone size={16} />} label={t['mfs-payment'] || "MFS Payment"} active={activeTab === 'mfs-payment'} onClick={() => setActiveTab('mfs-payment')} />
+                <NavItem icon={<Bell size={16} />} label={t.notices} active={activeTab === 'notices'} onClick={() => setActiveTab('notices')} />
+              </div>
+            )}
+          </div>
+
+          {/* Group 6: Enterprise ERP & Web3 */}
+          <div className="border-t border-zinc-800/70 pt-3">
+            <button
+              onClick={() => toggleSidebarGroup('enterprise')}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-400 hover:text-white transition-colors"
+            >
+              <span>{language === 'bn' ? '৬. ইআরপি, ওয়েব৩ ও অন্যান্য' : '6. ERP, Web3 & Ecosystem'}</span>
+              <ChevronDown size={14} className={cn("transition-transform", openSidebarGroups.enterprise && "rotate-180 text-amber-400")} />
+            </button>
+            {openSidebarGroups.enterprise && (
+              <div className="mt-1 space-y-1">
+                <NavItem icon={<Receipt size={16} />} label={t.invoice} active={activeTab === 'invoice'} onClick={() => setActiveTab('invoice')} />
+                <NavItem icon={<Database size={16} />} label="Odoo ERP Integration" active={activeTab === 'odoo-erp'} onClick={() => setActiveTab('odoo-erp')} />
+                <NavItem icon={<Cpu size={16} />} label="ERPNext Automation" active={activeTab === 'erpnext'} onClick={() => setActiveTab('erpnext')} />
+                <NavItem icon={<Folder size={16} />} label="Dropbox Cloud" active={activeTab === 'dropbox'} onClick={() => setActiveTab('dropbox')} />
+                <NavItem icon={<Database size={16} />} label={t.base} active={activeTab === 'base'} onClick={() => setActiveTab('base')} />
+                <NavItem icon={<Fingerprint size={16} />} label={t.blockchain} active={activeTab === 'blockchain-verify'} onClick={() => setActiveTab('blockchain-verify')} />
+                <NavItem icon={<Ticket size={16} />} label={t.tokens} active={activeTab === 'tokenized-cert'} onClick={() => setActiveTab('tokenized-cert')} />
+                <NavItem icon={<Coins size={16} />} label={t.crypto} active={activeTab === 'crypto-tax'} onClick={() => setActiveTab('crypto-tax')} />
+                <NavItem icon={<Share2 size={16} />} label={t.social} active={activeTab === 'social'} onClick={() => setActiveTab('social')} />
+                <NavItem icon={<FileText size={16} />} label={t.blog} active={activeTab === 'blog'} onClick={() => setActiveTab('blog')} />
+                <NavItem icon={<AlertCircle size={16} />} label={t.help} active={activeTab === 'help'} onClick={() => setActiveTab('help')} />
+              </div>
+            )}
           </div>
         </nav>
 
-        <div className="p-8">
+        {/* Bottom CTA: MVP Features Hub & Account Status */}
+        <div className="p-4 border-t border-zinc-800/80 bg-[#070A12] space-y-2.5">
           <button 
-            onClick={() => setActiveTab('subscription')}
+            onClick={() => setActiveTab('mvp-hub')}
             className={cn(
-              "w-full p-4 rounded-2xl flex flex-col gap-3 transition-all duration-300 group",
-              activeTab === 'subscription' ? "bg-zinc-900 text-white" : "bg-zinc-50 hover:bg-zinc-100 text-zinc-900"
+              "w-full p-3.5 rounded-xl flex items-center justify-between transition-all duration-200 group",
+              activeTab === 'mvp-hub'
+                ? "bg-amber-400 text-zinc-950 font-black shadow-lg shadow-amber-400/20"
+                : "bg-zinc-900 hover:bg-zinc-800 text-amber-400 border border-amber-400/30"
             )}
           >
-            <div className="flex items-center justify-between w-full">
-              <ShieldCheck size={20} className={activeTab === 'subscription' ? "text-brand-400" : "text-zinc-400"} />
-              <div className="px-2 py-0.5 bg-brand-500 text-white text-[8px] font-black uppercase tracking-tighter rounded-full">Pro</div>
+            <div className="flex items-center gap-2.5">
+              <Sparkles size={16} className={activeTab === 'mvp-hub' ? "text-zinc-950" : "text-amber-400"} />
+              <div className="text-left">
+                <p className="text-xs font-black uppercase tracking-wider">
+                  {language === 'bn' ? 'এমভিপি ফিচার হাব' : 'MVP Showcase Hub'}
+                </p>
+                <p className={cn("text-[10px] font-medium", activeTab === 'mvp-hub' ? "text-zinc-800" : "text-zinc-400")}>
+                  {language === 'bn' ? '১১টি আবশ্যকীয় ফিচার ও চেকলিস্ট' : '11 Core Features & Checklist'}
+                </p>
+              </div>
             </div>
-            <div className="text-left">
-              <p className="text-xs font-bold">{t.managePlan}</p>
-              <p className={cn("text-[10px]", activeTab === 'subscription' ? "text-zinc-400" : "text-zinc-500")}>{t.upgrade}</p>
-            </div>
+            <ChevronRight size={15} />
           </button>
+
+          <div className="flex items-center justify-between px-2 pt-1 text-[11px] text-zinc-400">
+            <button
+              onClick={() => setActiveTab('history')}
+              className="flex items-center gap-2 hover:text-white transition-colors"
+            >
+              <span className={cn("w-2 h-2 rounded-full", isGoogleAuthenticated ? "bg-emerald-400" : "bg-amber-400")} />
+              <span className="font-semibold">
+                {isGoogleAuthenticated
+                  ? (language === 'bn' ? 'অ্যাকাউন্ট সংযুক্ত' : 'Account Connected')
+                  : (language === 'bn' ? 'ইউজার অ্যাকাউন্ট' : 'User Account')}
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveTab('subscription')}
+              className="font-mono text-[10px] text-amber-400 hover:underline uppercase"
+            >
+              PRO PLAN
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -939,168 +921,76 @@ export default function App() {
       </AnimatePresence>
 
       {/* Main Content */}
-      <main className="md:ml-72 p-6 md:p-8 lg:p-12 min-h-screen pt-24 md:pt-12">
-        <header className="flex flex-col lg:flex-row justify-between lg:items-center gap-6 mb-12 hidden md:flex">
+      <main className="md:ml-72 p-4 sm:p-6 lg:p-10 min-h-screen pt-20 md:pt-8">
+        {/* Executive Top Command Header (Desktop) */}
+        <header className="hidden md:flex flex-col lg:flex-row justify-between lg:items-center gap-4 mb-8 pb-5 border-b border-zinc-200/80">
           <div>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="px-2 py-0.5 bg-brand-500 text-white text-[8px] font-black uppercase tracking-widest rounded-md">{t.live}</div>
-              <span className="text-[10px] font-black text-brand-600 uppercase tracking-[0.3em]">{t.compliance}</span>
+            <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-zinc-500 mb-1">
+              <span className="text-emerald-600 font-bold">● NBR STATUTORY ENGINE</span>
+              <span>·</span>
+              <span>ITA 2023 & VAT ACT 2012</span>
             </div>
-            <h1 className="text-4xl md:text-5xl font-black tracking-tighter font-display capitalize bg-gradient-to-r from-zinc-900 to-zinc-500 bg-clip-text text-transparent">
-              {t[activeTab as keyof typeof t] || activeTab.replace('-', ' ')}
+            <h1 className="text-2xl lg:text-3xl font-black tracking-tight text-zinc-900 capitalize">
+              {activeTab === 'mvp-hub'
+                ? (language === 'bn' ? 'এমভিপি ফিচার হাব ও কমপ্লায়েন্স চেকলিস্ট' : 'MVP Features Showcase & Checklist')
+                : (t[activeTab as keyof typeof t] || activeTab.replace(/-/g, ' '))}
             </h1>
           </div>
           
-          <div className="flex items-center gap-4">
-            <div className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider border",
-              isOnline ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-red-50 text-red-700 border-red-100"
-            )}>
-              <div className={cn("w-2 h-2 rounded-full animate-pulse", isOnline ? "bg-emerald-500" : "bg-red-500")} />
-              {isOnline ? (language === 'bn' ? 'অনলাইন' : 'Online') : (language === 'bn' ? 'অফলাইন' : 'Offline')}
-            </div>
-            <div className="relative w-full lg:w-96 group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-brand-500 transition-colors" size={18} />
-              <input 
-                type="text"
-                placeholder={t.search}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onFocus={() => searchQuery.trim() && setShowSearchResults(true)}
-                className="w-full pl-12 pr-4 py-3.5 bg-white border border-zinc-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-brand-500/5 focus:border-brand-500 transition-all text-sm shadow-sm"
-              />
-              {isSearching && (
-                <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                  <div className="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-                </div>
-              )}
-
-              <AnimatePresence>
-                {showSearchResults && (
-                  <>
-                    <div 
-                      className="fixed inset-0 z-40" 
-                      onClick={() => setShowSearchResults(false)} 
-                    />
-                    <motion.div 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 10 }}
-                      className="absolute left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-[#E5E7EB] z-50 overflow-hidden"
-                    >
-                      <div className="p-3 border-b border-[#F3F4F6] bg-[#F9FAFB]">
-                        <p className="text-[10px] font-bold text-[#6B7280] uppercase tracking-wider">Search Results</p>
-                      </div>
-                      <div className="max-h-[400px] overflow-y-auto">
-                        {searchResults.length > 0 ? (
-                          searchResults.map((result, idx) => (
-                            <button
-                              key={`${result.type}-${result.id}-${idx}`}
-                              onClick={() => {
-                                if (result.type === 'notice') {
-                                  window.open(result.link, '_blank');
-                                } else {
-                                  setActiveTab(result.type as Tab);
-                                }
-                                setShowSearchResults(false);
-                                setSearchQuery('');
-                              }}
-                              className="w-full text-left p-4 hover:bg-gray-50 transition-all border-b border-[#F3F4F6] last:border-0 flex items-center gap-3"
-                            >
-                              <div className={cn(
-                                "w-8 h-8 rounded-lg flex items-center justify-center",
-                                result.type === 'blog' && "bg-blue-50 text-blue-600",
-                                result.type === 'client' && "bg-purple-50 text-purple-600",
-                                result.type === 'notice' && "bg-emerald-50 text-emerald-600",
-                                result.type === 'invoice' && "bg-amber-50 text-amber-600"
-                              )}>
-                                {result.type === 'blog' && <FileText size={16} />}
-                                {result.type === 'client' && <Users size={16} />}
-                                {result.type === 'notice' && <Bell size={16} />}
-                                {result.type === 'invoice' && <Receipt size={16} />}
-                              </div>
-                              <div>
-                                <p className="text-sm font-bold text-[#111827] line-clamp-1">{result.title}</p>
-                                <p className="text-[10px] font-medium text-[#6B7280] uppercase tracking-wider">{result.type}</p>
-                              </div>
-                              <ChevronRight size={14} className="ml-auto text-[#D1D5DB]" />
-                            </button>
-                          ))
-                        ) : (
-                          <div className="p-8 text-center">
-                            <p className="text-sm text-[#6B7280] italic">No results found for "{searchQuery}"</p>
-                          </div>
-                        )}
-                      </div>
-                    </motion.div>
-                  </>
-                )}
-              </AnimatePresence>
-            </div>
-
-            <div className="relative">
-              <button 
-                onClick={() => setShowNoticesDropdown(!showNoticesDropdown)}
-                className="p-2 text-[#6B7280] hover:bg-white hover:shadow-sm rounded-lg transition-all relative"
-              >
-                <Bell size={20} />
-                {notices.length > 0 && (
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-[#F8F9FA]" />
-                )}
-              </button>
-              
-              <AnimatePresence>
-                {showNoticesDropdown && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-[#E5E7EB] z-[60] overflow-hidden"
-                  >
-                    <div className="p-4 border-bottom border-[#F3F4F6] flex justify-between items-center bg-[#F9FAFB]">
-                      <h4 className="font-bold text-sm">Latest Tax Notices</h4>
-                      <button onClick={() => setActiveTab('notices')} className="text-xs text-[#10B981] font-bold hover:underline">View All</button>
-                    </div>
-                    <div className="max-h-96 overflow-y-auto">
-                      {notices.length > 0 ? (
-                        notices.slice(0, 5).map((notice) => (
-                          <a 
-                            key={notice.id} 
-                            href={notice.link} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="block p-4 hover:bg-gray-50 transition-all border-b border-[#F3F4F6] last:border-0"
-                          >
-                            <div className="flex justify-between items-start mb-1">
-                              <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full uppercase">{notice.category}</span>
-                              <span className="text-[10px] text-[#9CA3AF]">{new Date(notice.createdAt).toLocaleDateString()}</span>
-                            </div>
-                            <p className="text-xs font-medium text-[#374151] line-clamp-2">{notice.title}</p>
-                          </a>
-                        ))
-                      ) : (
-                        <div className="p-8 text-center text-[#6B7280] text-sm italic">No new notices</div>
-                      )}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-            <div className="relative">
-              <button 
-                onClick={() => setLanguage(language === 'en' ? 'bn' : 'en')}
-                className="flex items-center gap-2 px-3 py-2 text-xs font-black text-zinc-600 hover:bg-white hover:shadow-sm rounded-lg transition-all border border-zinc-100"
-              >
-                <Languages size={16} className="text-brand-500" />
-                <span>{language === 'en' ? 'বাংলা' : 'English'}</span>
-              </button>
-            </div>
-            <button className="p-2 text-[#6B7280] hover:bg-white hover:shadow-sm rounded-lg transition-all">
-              <Settings size={20} />
+          <div className="flex items-center flex-wrap gap-3">
+            {/* Quick Command Bar Trigger (⌘K) */}
+            <button
+              onClick={() => setIsCommandPaletteOpen(true)}
+              className="flex items-center gap-3 px-4 py-2.5 bg-white hover:bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium text-zinc-600 shadow-sm transition-all"
+            >
+              <Search size={15} className="text-amber-500" />
+              <span>{language === 'bn' ? 'টুল বা ফর্ম খুঁজুন...' : 'Quick Search Tools...'}</span>
+              <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-zinc-100 text-zinc-600 rounded border border-zinc-200 font-bold">
+                ⌘K
+              </kbd>
             </button>
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#10B981] to-[#34D399] flex items-center justify-center text-white font-bold">
-              S
-            </div>
+
+            {/* 7-Day Upcoming Deadline Alert Badge */}
+            <button
+              onClick={() => setActiveTab('law-updates')}
+              className={cn(
+                "flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all border",
+                upcomingAlertsPreview.length > 0
+                  ? "bg-zinc-950 text-white border-amber-500/50 hover:bg-zinc-900 shadow-sm"
+                  : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+              )}
+              title="7-Day Statutory Deadline Alerts"
+            >
+              <Bell size={15} className={upcomingAlertsPreview.length > 0 ? "text-amber-400" : "text-zinc-500"} />
+              <span>
+                {upcomingAlertsPreview.length > 0
+                  ? (language === 'bn' ? `${upcomingAlertsPreview.length}টি ডেডলাইন অ্যালার্ট` : `${upcomingAlertsPreview.length} Due Alerts`)
+                  : (language === 'bn' ? 'ডেডলাইন অ্যালার্ট' : 'Alerts')}
+              </span>
+            </button>
+
+            {/* User Account / Google Connect Button */}
+            <button
+              onClick={() => (isGoogleAuthenticated ? setActiveTab('history') : handleGoogleConnect())}
+              className="flex items-center gap-2 px-3.5 py-2.5 bg-white hover:bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800 transition-all"
+              title="User Account & Filing History"
+            >
+              <span className={cn("w-2 h-2 rounded-full", isGoogleAuthenticated ? "bg-emerald-500" : "bg-amber-500")} />
+              <span>
+                {isGoogleAuthenticated
+                  ? (language === 'bn' ? 'অ্যাকাউন্ট সক্রিয়' : 'Account Synced')
+                  : (language === 'bn' ? 'অ্যাকাউন্ট লগইন' : 'User Login')}
+              </span>
+            </button>
+
+            {/* Language Switcher */}
+            <button 
+              onClick={() => setLanguage(language === 'en' ? 'bn' : 'en')}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-black text-zinc-800 bg-amber-400/20 hover:bg-amber-400/30 border border-amber-400/40 rounded-xl transition-all"
+            >
+              <Languages size={15} className="text-amber-700" />
+              <span>{language === 'en' ? 'বাংলা' : 'EN'}</span>
+            </button>
           </div>
         </header>
 
@@ -1112,7 +1002,20 @@ export default function App() {
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
           >
-            {activeTab === 'dashboard' && <Dashboard vatHistory={vatHistory} taxHistory={taxHistory} t={t} notices={notices} language={language} />}
+            {activeTab === 'dashboard' && (
+              <Dashboard
+                vatHistory={vatHistory}
+                taxHistory={taxHistory}
+                t={t}
+                notices={notices}
+                language={language}
+                upcomingAlerts={upcomingAlertsPreview}
+                isGoogleAuthenticated={isGoogleAuthenticated}
+                onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+                onRefreshAlerts={fetchUpcomingAlertsPreview}
+              />
+            )}
+            {activeTab === 'scanner' && <DocumentScanner language={language} />}
             {activeTab === 'nbr-script-markup' && <NBRMarkupScriptHub language={language} />}
             {activeTab === 'vat-agents' && <VatAgentPortal />}
             {activeTab === 'vat' && (
@@ -1151,6 +1054,9 @@ export default function App() {
                 }} 
               />
             )}
+            {activeTab === 'batch-invoice-ocr' && (
+              <AllInOneInvoiceOCR language={language} />
+            )}
             {activeTab === 'ocr-automation' && (
               <OCRFormAutomation 
                 language={language} 
@@ -1182,7 +1088,12 @@ export default function App() {
             )}
             {activeTab === 'help' && <HelpCenter setActiveTab={setActiveTab} />}
             {activeTab === 'notices' && <NoticesView notices={notices} onRefresh={fetchNotices} />}
-            {activeTab === 'law-updates' && <NotificationCenter language={language} />}
+            {activeTab === 'law-updates' && (
+              <NotificationCenter 
+                language={language} 
+                onNavigate={(tab) => setActiveTab(tab as Tab)} 
+              />
+            )}
             {activeTab === 'subscription' && <SubscriptionView />}
             {activeTab === 'crypto-tax' && <CryptoTaxAdvisory />}
             {activeTab === 'blockchain-verify' && <BlockchainVerification />}
@@ -1191,6 +1102,7 @@ export default function App() {
             {activeTab === 'final-tax' && <FinalTaxCalculator />}
             {activeTab === 'zakat' && <ZakatCalculator />}
             {activeTab === 'critical-vat' && <Mushak91Form />}
+            {activeTab === 'mvp-hub' && <MVPFeaturesHub language={language} setActiveTab={setActiveTab} />}
             {activeTab === 'ocr' && <OcrTool language={language} />}
             {activeTab === 'developer' && <DeveloperPanel notices={notices} setNotices={setNotices} />}
             {activeTab === 'documents' && <DocumentCentre language={language} setLanguage={setLanguage} onInvoiceExtracted={(data) => {
@@ -1288,40 +1200,29 @@ function NavItem({ icon, label, active, onClick, badge }: { icon: React.ReactNod
     <button 
       onClick={onClick}
       className={cn(
-        "w-full flex items-center gap-4 px-5 py-4 rounded-2xl text-sm font-black transition-all duration-300 group relative overflow-hidden",
+        "w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 group relative overflow-hidden",
         active 
-          ? "bg-zinc-900 text-white shadow-xl shadow-zinc-900/10 scale-[1.02]" 
-          : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900"
+          ? "bg-zinc-800/90 text-white border border-amber-400/30 shadow-md" 
+          : "text-zinc-400 hover:bg-zinc-900/80 hover:text-zinc-100 border border-transparent"
       )}
     >
+      {active && (
+        <span className="absolute left-0 top-1.5 bottom-1.5 w-1 bg-amber-400 rounded-r" />
+      )}
       <span className={cn(
-        "transition-all duration-300 relative z-10",
-        active ? "text-brand-400 scale-110" : "text-zinc-400 group-hover:text-zinc-900 group-hover:scale-110"
+        "transition-colors duration-200 relative z-10 shrink-0",
+        active ? "text-amber-400" : "text-zinc-500 group-hover:text-amber-400"
       )}>
         {icon}
       </span>
-      <span className="relative z-10 tracking-tight flex-1 text-left">{label}</span>
+      <span className="relative z-10 tracking-tight flex-1 text-left truncate">{label}</span>
       {badge && (
         <span className={cn(
-          "relative z-10 px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest",
-          active ? "bg-white/10 text-brand-400" : "bg-brand-50 text-brand-600"
+          "relative z-10 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-wider shrink-0",
+          active ? "bg-amber-400 text-zinc-950" : "bg-zinc-800 text-zinc-300 border border-zinc-700"
         )}>
           {badge}
         </span>
-      )}
-      {active && (
-        <motion.div 
-          layoutId="active-pill"
-          className="absolute inset-0 bg-zinc-900 -z-0"
-          transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-        />
-      )}
-      {active && (
-        <motion.div 
-          initial={{ scale: 0, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="absolute right-4 w-1.5 h-1.5 bg-brand-400 rounded-full z-10"
-        />
       )}
     </button>
   );
@@ -1329,7 +1230,7 @@ function NavItem({ icon, label, active, onClick, badge }: { icon: React.ReactNod
 
 function DocumentCentre({ language, setLanguage, onInvoiceExtracted }: { language: Language, setLanguage: (l: Language) => void, onInvoiceExtracted: (data: any) => void }) {
   const t = translations[language];
-  const [activeSubTab, setActiveSubTab] = useState<'ocr' | 'markup-script' | 'automation' | 'history'>('ocr');
+  const [activeSubTab, setActiveSubTab] = useState<'ocr' | 'markup-script' | 'pdf-scanner' | 'automation' | 'history'>('ocr');
   const [markupEditorText, setMarkupEditorText] = useState<string>('');
   const [modalCustomData, setModalCustomData] = useState<any>(null);
   const [selectedHistoryEntry, setSelectedHistoryEntry] = useState<any>(null);
@@ -1661,6 +1562,19 @@ function DocumentCentre({ language, setLanguage, onInvoiceExtracted }: { languag
           <button
             onClick={() => {
               setSelectedHistoryEntry(null);
+              setActiveSubTab('pdf-scanner');
+            }}
+            className={cn(
+              "px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2",
+              activeSubTab === 'pdf-scanner' ? "bg-white text-emerald-800 shadow-sm font-black" : "text-zinc-400 hover:text-zinc-600"
+            )}
+          >
+            <Camera size={18} className={activeSubTab === 'pdf-scanner' ? "text-emerald-600" : ""} />
+            {language === 'bn' ? 'PDF স্ক্যানার ও AI অটো-ড্র্যাগ' : 'Document PDF & AI Auto-Drag'}
+          </button>
+          <button
+            onClick={() => {
+              setSelectedHistoryEntry(null);
               setActiveSubTab('automation');
             }}
             className={cn(
@@ -1705,6 +1619,12 @@ function DocumentCentre({ language, setLanguage, onInvoiceExtracted }: { languag
         </div>
       </div>
 
+      {activeSubTab === 'pdf-scanner' && (
+        <div className="w-full">
+          <DocumentScanner language={language} />
+        </div>
+      )}
+
       {activeSubTab === 'markup-script' && (
         <NBRMarkupScriptHub 
           language={language} 
@@ -1739,6 +1659,31 @@ function DocumentCentre({ language, setLanguage, onInvoiceExtracted }: { languag
 
       {activeSubTab === 'ocr' && (
         <>
+          <div className="mb-6 p-5 rounded-3xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-700 text-white shadow-xl shadow-emerald-600/10 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="space-y-1 text-center sm:text-left">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-[11px] font-black tracking-wider uppercase">
+                <Sparkles size={12} className="text-amber-300" />
+                <span>{language === 'bn' ? 'নতুন ফিচার' : 'New Feature'}</span>
+              </div>
+              <h3 className="text-base font-black tracking-tight">
+                {language === 'bn' ? 'ডকুমেন্ট PDF সেন্টার: AI অটো-ড্র্যাগ ও মাল্টিপল ফাইল স্ক্যান' : 'Document PDF Centre: AI Auto-Drag & Multi-File Batch Scan'}
+              </h3>
+              <p className="text-xs text-emerald-100 max-w-xl">
+                {language === 'bn'
+                  ? 'একসাথে একাধিক ডকুমেন্ট আপলোড করুন। AI স্বয়ংক্রিয়ভাবে বর্ডার কর্নারগুলো ড্র্যাগ ও এডজাস্ট করে পারফেক্ট PDF ফাইল তৈরি করবে।'
+                  : 'Upload multiple documents at once. AI will automatically auto-drag border corners, flatten perspective, and compile clean multi-page PDFs.'}
+              </p>
+            </div>
+            <button
+              onClick={() => setActiveSubTab('pdf-scanner')}
+              className="px-5 py-3 rounded-2xl bg-white text-emerald-800 hover:bg-emerald-50 font-black text-xs transition-all shadow-md active:scale-95 shrink-0 flex items-center gap-2"
+            >
+              <Camera size={16} className="text-emerald-600" />
+              <span>{language === 'bn' ? 'PDF স্ক্যানার খুলুন' : 'Open PDF Scanner'}</span>
+              <ChevronRight size={16} />
+            </button>
+          </div>
+
           <SectionGuide 
             language={language}
             title={t.ocrGuideTitle}
@@ -2914,27 +2859,84 @@ function DeveloperPanel({ notices, setNotices }: { notices: TaxNotice[], setNoti
   );
 }
 
-function Dashboard({ vatHistory, taxHistory, t, notices, language }: { vatHistory: any[], taxHistory: any[], t: any, notices: any[], language: Language }) {
+function Dashboard({
+  vatHistory,
+  taxHistory,
+  t,
+  notices,
+  language,
+  upcomingAlerts = [],
+  isGoogleAuthenticated = false,
+  onOpenCommandPalette,
+  onRefreshAlerts
+}: {
+  vatHistory: any[];
+  taxHistory: any[];
+  t: any;
+  notices: any[];
+  language: Language;
+  upcomingAlerts?: any[];
+  isGoogleAuthenticated?: boolean;
+  onOpenCommandPalette?: () => void;
+  onRefreshAlerts?: () => void;
+}) {
   const totalVat = vatHistory.reduce((sum, r) => sum + r.vatAmount, 0);
   const totalTax = taxHistory.reduce((sum, r) => sum + r.totalTaxLiability, 0);
   const [showFullMarkupHub, setShowFullMarkupHub] = useState(true);
   const [dashboardModalData, setDashboardModalData] = useState<any>(null);
   const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
+  const [snoozeActionLoading, setSnoozeActionLoading] = useState(false);
   const isBn = language === 'bn';
+
+  const handleToggleSnooze = async (alertId: number, currentStatus?: boolean) => {
+    try {
+      setSnoozeActionLoading(true);
+      const res = await fetch(`/api/compliance/${alertId}/auto-snooze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !currentStatus })
+      });
+      if (res.ok) {
+        if (onRefreshAlerts) onRefreshAlerts();
+      }
+    } catch (err) {
+      console.error('Failed to toggle snooze from dashboard:', err);
+    } finally {
+      setSnoozeActionLoading(false);
+    }
+  };
 
   const containerVariants = {
     hidden: { opacity: 0 },
     show: {
       opacity: 1,
       transition: {
-        staggerChildren: 0.1
+        staggerChildren: 0.08
       }
     }
   };
 
   const itemVariants = {
-    hidden: { opacity: 0, y: 20 },
+    hidden: { opacity: 0, y: 16 },
     show: { opacity: 1, y: 0 }
+  };
+
+  const mvpQuickTourItems = [
+    { step: '01', labelEn: 'VAT Compliance Dashboard', labelBn: 'ভ্যাট ড্যাশবোর্ড (মূসক ৯.১)', tab: 'critical-vat' },
+    { step: '02', labelEn: 'Compliance Checklist', labelBn: 'কমপ্লায়েন্স চেকলিস্ট', tab: 'mvp-hub' },
+    { step: '03', labelEn: '7-Day Due Date Reminder', labelBn: '৭-দিনের ডেডলাইন অ্যালার্ট', tab: 'law-updates' },
+    { step: '04', labelEn: 'Document Upload & OCR', labelBn: 'ডকুমেন্ট আপলোড ও ওসিআর', tab: 'batch-invoice-ocr' },
+    { step: '05', labelEn: 'Tax Compliance Checker', labelBn: 'ট্যাক্স ও চালান চেকার', tab: 'challan-verify' },
+    { step: '06', labelEn: 'User Account / Login', labelBn: 'ইউজার অ্যাকাউন্ট ও লগইন', tab: 'history' },
+    { step: '07', labelEn: 'Return Deadline Tracking', labelBn: 'রিটার্ন ডেডলাইন ক্যালেন্ডার', tab: 'compliance-calendar' },
+    { step: '08', labelEn: 'Document Management', labelBn: 'ডকুমেন্ট ম্যানেজমেন্ট', tab: 'documents' },
+    { step: '09', labelEn: 'AI Legal Guidance', labelBn: 'এআই ট্যাক্স গাইডেন্স', tab: 'ai' },
+    { step: '10', labelEn: 'Automated Reports', labelBn: 'অটোমেটেড রিপোর্ট', tab: 'reports' },
+    { step: '11', labelEn: 'NBR Script from Markup', labelBn: 'মার্কআপ এনবিআর স্ক্রিপ্ট', tab: 'nbr-script-markup' }
+  ];
+
+  const switchTab = (tabName: string) => {
+    window.dispatchEvent(new CustomEvent('changeTab', { detail: tabName }));
   };
 
   return (
@@ -2942,95 +2944,255 @@ function Dashboard({ vatHistory, taxHistory, t, notices, language }: { vatHistor
       variants={containerVariants}
       initial="hidden"
       animate="show"
-      className="space-y-8 md:space-y-12"
+      className="space-y-8"
     >
-      {/* Welcome Section */}
+      {/* 1. Executive Dark Carbon & Amber Hero + Interactive MVP Tour Banner */}
       <motion.section 
         variants={itemVariants}
-        className="relative overflow-hidden rounded-[3rem] bg-zinc-900 p-8 md:p-12 text-white shadow-2xl shadow-zinc-900/20"
+        className="relative overflow-hidden rounded-3xl bg-[#090D16] border border-zinc-800/90 p-6 sm:p-8 lg:p-10 text-white shadow-2xl space-y-8"
       >
-        <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
-          <div className="space-y-6 text-center md:text-left">
-            <motion.div 
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.2 }}
-              className="inline-flex items-center gap-2 px-4 py-1.5 bg-brand-500/20 text-brand-400 rounded-full text-[10px] font-black uppercase tracking-widest border border-brand-500/20"
-            >
-              <ShieldCheck size={12} /> {t.verifiedCompliance}
-            </motion.div>
-            <h2 className="text-4xl md:text-6xl font-black font-display tracking-tight leading-[0.9]">
-              {t.welcome}, <br />
-              <span className="text-brand-400">Taxpayer</span>
+        <div className="absolute -top-24 -right-24 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -left-24 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-8 pb-8 border-b border-zinc-800/80">
+          <div className="space-y-4 max-w-2xl">
+            <div className="flex items-center flex-wrap gap-2 text-xs font-mono uppercase tracking-wider">
+              <span className="text-amber-400 font-bold flex items-center gap-1.5">
+                <ShieldCheck size={15} />
+                {isBn ? 'জাতীয় ট্যাক্স ও ভ্যাট অটোমেশন কমান্ড সেন্টার' : 'NATIONAL TAX & VAT AUTOMATION COMMAND CENTER'}
+              </span>
+              <span className="text-zinc-600">·</span>
+              <span className="text-emerald-400 font-bold">ITA 2023 & VAT ACT 2012</span>
+            </div>
+
+            <h2 className="text-3xl sm:text-5xl font-black font-display tracking-tight leading-[1.05]">
+              {isBn ? 'স্মার্ট ভ্যাট ও আয়কর কমপ্লায়েন্স ইঞ্জিন' : 'Enterprise VAT & Tax Compliance OS'}
             </h2>
-            <p className="text-zinc-400 text-sm md:text-lg max-w-md leading-relaxed font-medium">
-              {t.complianceScore} <span className="text-white font-black">98%</span>. {language === 'bn' ? `আপনার ${notices.length} ${t.pendingNotices} ${t.toReview}` : `You have ${notices.length} ${t.pendingNotices} ${t.toReview}`}.
+
+            <p className="text-zinc-400 text-sm sm:text-base leading-relaxed">
+              {isBn
+                ? 'মূসক ৯.১ দাখিল, ৭-দিনের স্বয়ংক্রিয় ডেডলাইন অ্যালার্ট, এআই চালান ওসিআর, ই-চালান যাচাই এবং ১-ক্লিক এনবিআর স্যালারি লেজার অটোমেশন—সবকিছু এক প্ল্যাটফর্মে।'
+                : 'Unified statutory automation for Mushak 9.1 filing, 7-day proactive deadline alerts, batch invoice AI OCR, e-Challan verification, and 1-click NBR ledger scripts.'}
             </p>
-            <div className="flex flex-wrap justify-center md:justify-start gap-4 pt-4">
+
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <button 
+                onClick={() => switchTab('mvp-hub')} 
+                className="px-5 py-3 bg-amber-400 hover:bg-amber-300 text-zinc-950 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-amber-400/20 flex items-center gap-2"
+              >
+                <Sparkles size={16} />
+                <span>{isBn ? 'এমভিপি ফিচার ট্যুর ও চেকলিস্ট (১১/১১)' : 'Launch MVP Tour & Checklist (11/11)'}</span>
+              </button>
+
               <button 
                 onClick={() => {
                   setShowFullMarkupHub(true);
                   const el = document.getElementById('dashboard-prominent-markup-hub');
                   if (el) el.scrollIntoView({ behavior: 'smooth' });
                 }} 
-                className="px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-zinc-950 rounded-2xl font-black text-sm transition-all shadow-xl shadow-emerald-500/30 active:scale-95 flex items-center gap-2.5"
+                className="px-5 py-3 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2"
               >
-                <FileCode size={18} />
-                {isBn ? '★ মার্কআপ থেকে এনবিআর স্ক্রিপ্ট' : '★ NBR Script from Markup'}
+                <FileCode size={16} />
+                <span>{isBn ? 'মার্কআপ থেকে এনবিআর স্ক্রিপ্ট' : 'NBR Script from Markup'}</span>
               </button>
+
               <button 
-                onClick={() => window.dispatchEvent(new CustomEvent('changeTab', { detail: 'vat' }))} 
-                className="px-8 py-4 bg-brand-500 hover:bg-brand-600 text-white rounded-2xl font-black text-sm transition-all shadow-xl shadow-brand-500/30 active:scale-95"
+                onClick={() => switchTab('critical-vat')} 
+                className="px-4 py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-100 border border-zinc-700 rounded-xl font-bold text-xs transition-all flex items-center gap-2"
               >
-                {t.newVat}
+                <Receipt size={15} className="text-amber-400" />
+                <span>{isBn ? 'মূসক ৯.১ ফরম' : 'Mushak 9.1 Form'}</span>
               </button>
-              <button 
-                onClick={() => window.dispatchEvent(new CustomEvent('changeTab', { detail: 'ocr' }))} 
-                className="px-8 py-4 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-2xl font-black text-sm transition-all border border-emerald-500/40 active:scale-95 flex items-center gap-2"
+
+              {onOpenCommandPalette && (
+                <button
+                  onClick={onOpenCommandPalette}
+                  className="px-4 py-3 bg-zinc-900/70 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded-xl font-mono text-xs transition-all flex items-center gap-2"
+                >
+                  <Search size={14} className="text-amber-400" />
+                  <span>⌘K</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Right Live Statutory Readiness Card */}
+          <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-5 sm:p-6 lg:w-80 shrink-0 space-y-4">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">
+                {isBn ? 'কমপ্লায়েন্স স্কোর' : 'STATUTORY READINESS'}
+              </span>
+              <span className="text-xs font-mono font-bold text-emerald-400">● VERIFIED</span>
+            </div>
+            <div className="flex items-baseline justify-between">
+              <div className="text-4xl font-black font-mono tabular-nums text-white">98.4%</div>
+              <div className="text-right font-mono text-xs text-amber-400">
+                {upcomingAlerts.length > 0
+                  ? (isBn ? `${upcomingAlerts.length}টি আসন্ন ডেডলাইন` : `${upcomingAlerts.length} Upcoming Alerts`)
+                  : (isBn ? 'সব রিটার্ন আপ-টু-ডেট' : 'All Returns Current')}
+              </div>
+            </div>
+            <div className="space-y-2 pt-1 text-xs">
+              <button
+                onClick={() => switchTab('law-updates')}
+                className="w-full flex items-center justify-between py-2 px-3 rounded-lg bg-zinc-950 hover:bg-zinc-800 text-zinc-300 transition-colors"
               >
-                <ScanText size={18} />
-                {isBn ? 'ফ্রি বাংলা OCR' : 'Free Bengali OCR'}
+                <span>{isBn ? '৭-দিনের ডেডলাইন রিমাইন্ডার' : '7-Day Deadline Alerts'}</span>
+                <ChevronRight size={14} className="text-amber-400" />
               </button>
-              <button 
-                onClick={() => window.dispatchEvent(new CustomEvent('changeTab', { detail: 'notices' }))} 
-                className="px-8 py-4 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-black text-sm transition-all backdrop-blur-md border border-white/10 active:scale-95"
+              <button
+                onClick={() => switchTab('challan-verify')}
+                className="w-full flex items-center justify-between py-2 px-3 rounded-lg bg-zinc-950 hover:bg-zinc-800 text-zinc-300 transition-colors"
               >
-                {t.viewNotices}
+                <span>{isBn ? 'ট্যাক্স ও চালান কমপ্লায়েন্স চেকার' : 'Tax & Challan Checker'}</span>
+                <ChevronRight size={14} className="text-emerald-400" />
               </button>
             </div>
           </div>
-          <div className="hidden lg:block relative">
-            <motion.div 
-              animate={{ 
-                scale: [1, 1.1, 1],
-                opacity: [0.2, 0.4, 0.2]
-              }}
-              transition={{ 
-                duration: 4,
-                repeat: Infinity,
-                ease: "easeInOut"
-              }}
-              className="w-80 h-80 bg-brand-500/20 rounded-full blur-3xl absolute inset-0" 
-            />
-            <motion.div 
-              animate={{ 
-                y: [0, -20, 0],
-                rotate: [12, 15, 12]
-              }}
-              transition={{ 
-                duration: 6,
-                repeat: Infinity,
-                ease: "easeInOut"
-              }}
-              className="relative w-56 h-56 bg-gradient-to-tr from-brand-500 to-emerald-400 rounded-[3.5rem] flex items-center justify-center shadow-2xl shadow-brand-500/40"
+        </div>
+
+        {/* Interactive 11-Feature Competition MVP Quick-Launch Strip */}
+        <div className="relative z-10 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-mono uppercase tracking-wider text-amber-400 font-bold">
+              {isBn
+                ? '★ প্রতিযোগিতার ১১টি আবশ্যকীয় এমভিপি ফিচার (১-ক্লিকে সরাসরি ডেমো চালু করুন)'
+                : '★ ALL 11 MANDATORY MVP COMPETITION FEATURES (1-CLICK LIVE DEMO LAUNCHER)'}
+            </div>
+            <button
+              onClick={() => switchTab('mvp-hub')}
+              className="text-xs font-bold text-zinc-300 hover:text-amber-400 flex items-center gap-1 transition-colors"
             >
-              <ShieldCheck size={100} className="text-white -rotate-12 drop-shadow-2xl" />
-            </motion.div>
+              <span>{isBn ? 'পূর্ণাঙ্গ চেকলিস্ট দেখুন' : 'Full Checklist & Tour'}</span>
+              <ArrowRight size={13} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+            {mvpQuickTourItems.map((item) => (
+              <button
+                key={item.step}
+                onClick={() => switchTab(item.tab)}
+                className="group text-left p-3 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 hover:border-amber-400/50 transition-all flex flex-col justify-between gap-2"
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="font-mono text-[10px] font-bold text-amber-400">#{item.step}</span>
+                  <ArrowRight size={12} className="text-zinc-600 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all" />
+                </div>
+                <div className="text-xs font-bold text-zinc-100 group-hover:text-white line-clamp-1">
+                  {isBn ? item.labelBn : item.labelEn}
+                </div>
+              </button>
+            ))}
           </div>
         </div>
-        <div className="absolute top-0 right-0 w-96 h-96 bg-brand-500/10 rounded-full -mr-48 -mt-48 blur-3xl" />
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-brand-500/5 rounded-full -ml-32 -mb-32 blur-3xl" />
       </motion.section>
+
+      {/* 2. Live 7-Day Statutory Deadlines & Quick Compliance Bar with Auto-Snooze */}
+      {upcomingAlerts.length > 0 && (
+        <motion.section
+          variants={itemVariants}
+          className={cn(
+            "border rounded-2xl p-5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4 transition-all",
+            upcomingAlerts[0].retriggered
+              ? "bg-zinc-950 border-amber-500 ring-2 ring-amber-500/30 text-white"
+              : "bg-white border-zinc-200"
+          )}
+        >
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div className={cn(
+              "p-3 rounded-xl shrink-0",
+              upcomingAlerts[0].retriggered
+                ? "bg-amber-400 text-zinc-950 animate-pulse"
+                : "bg-zinc-950 text-amber-400"
+            )}>
+              <Bell size={20} />
+            </div>
+            <div>
+              <div className="flex items-center flex-wrap gap-2 text-[11px] font-mono uppercase tracking-wider font-bold">
+                {upcomingAlerts[0].retriggered ? (
+                  <span className="text-amber-400 font-black flex items-center gap-1 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-500/40 animate-pulse">
+                    <Zap size={13} className="text-amber-400" />
+                    {isBn ? '⚡ অটো-স্নুজ পুনরায় সক্রিয় (৪৮ ঘণ্টা বাকি — টাস্ক অসম্পূর্ণ!)' : '⚡ AUTO-SNOOZE RE-TRIGGERED (48H REMAINING — INCOMPLETE!)'}
+                  </span>
+                ) : upcomingAlerts[0].isSnoozed ? (
+                  <span className="text-amber-600 flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                    <Clock size={13} />
+                    {isBn ? '⏰ অটো-স্নুজ সক্রিয় (৪৮ ঘণ্টা পূর্বে অ্যালার্ট বাজবে)' : '⏰ AUTO-SNOOZED (RE-TRIGGERS AT 48H)'}
+                  </span>
+                ) : (
+                  <span className="text-rose-600">
+                    {isBn ? 'স্বয়ংক্রিয় ৭-দিনের ডেডলাইন সতর্কবার্তা' : 'AUTOMATED 7-DAY STATUTORY DEADLINE ALERT'}
+                  </span>
+                )}
+                <span className="text-zinc-400">·</span>
+                <span className={upcomingAlerts[0].retriggered ? "text-zinc-400" : "text-zinc-600"}>
+                  {upcomingAlerts[0].statutoryRef}
+                </span>
+              </div>
+              <h3 className={cn("text-base font-black flex items-center gap-2", upcomingAlerts[0].retriggered ? "text-white" : "text-zinc-900")}>
+                <span>{upcomingAlerts[0].title}</span>
+                {upcomingAlerts[0].autoSnooze && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-400/20 text-amber-400 border border-amber-400/30 uppercase font-bold">
+                    Auto-Snooze
+                  </span>
+                )}
+              </h3>
+              <p className={cn("text-xs", upcomingAlerts[0].retriggered ? "text-zinc-400" : "text-zinc-500")}>
+                {isBn ? 'শেষ তারিখ:' : 'Due Date:'}{' '}
+                <span className={cn("font-mono font-bold", upcomingAlerts[0].retriggered ? "text-white" : "text-zinc-800")}>
+                  {upcomingAlerts[0].deadlineDate}
+                </span>
+                {' · '}
+                <span className={upcomingAlerts[0].retriggered ? "text-amber-300 font-bold" : "text-rose-600 font-semibold"}>
+                  {upcomingAlerts[0].penaltyWarning}
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center flex-wrap gap-2.5 shrink-0">
+            {/* Auto-Snooze 48h Toggle Button */}
+            <button
+              onClick={() => handleToggleSnooze(upcomingAlerts[0].id, upcomingAlerts[0].autoSnooze)}
+              disabled={snoozeActionLoading}
+              className={cn(
+                "px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border",
+                upcomingAlerts[0].autoSnooze
+                  ? "bg-amber-400/20 text-amber-500 border-amber-400/40 hover:bg-amber-400/30"
+                  : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border-zinc-200"
+              )}
+              title={isBn
+                ? 'কাজ সম্পন্ন না হলে ডেডলাইনের ৪৮ ঘণ্টা পূর্বে সতর্কবার্তাটি স্বয়ংক্রিয়ভাবে পুনরায় বাজবে'
+                : 'Auto-Snooze: Re-trigger alert 48 hours before deadline if task remains incomplete'}
+            >
+              <Clock size={14} className={upcomingAlerts[0].autoSnooze ? "text-amber-500 animate-pulse" : "text-zinc-500"} />
+              <span>
+                {upcomingAlerts[0].autoSnooze
+                  ? (upcomingAlerts[0].retriggered
+                      ? (isBn ? '৪৮ঘ অ্যালার্ট সক্রিয়' : '48h Triggered')
+                      : (isBn ? 'অটো-স্নুজ সক্রিয় (৪৮ঘ)' : 'Auto-Snooze On (48h)'))
+                  : (isBn ? 'অটো-স্নুজ (৪৮ঘ)' : 'Auto-Snooze (48h)')
+                }
+              </span>
+            </button>
+
+            <button
+              onClick={() => switchTab(upcomingAlerts[0].targetTab || 'critical-vat')}
+              className="px-4 py-2.5 bg-zinc-950 hover:bg-zinc-800 text-amber-400 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm"
+            >
+              <span>{isBn ? 'এখনই রিটার্ন দাখিল করুন' : 'File Return Now'}</span>
+              <ArrowRight size={14} />
+            </button>
+            <button
+              onClick={() => switchTab('law-updates')}
+              className="px-3.5 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl text-xs font-bold transition-all"
+            >
+              {isBn ? `সব দেখুন (${upcomingAlerts.length})` : `All Alerts (${upcomingAlerts.length})`}
+            </button>
+          </div>
+        </motion.section>
+      )}
 
       {/* PROMINENT FEATURE HIGHLIGHT: NBR Script from Markup Text */}
       <motion.section
@@ -9490,20 +9652,65 @@ function SubscriptionView() {
   const [currentSub, setCurrentSub] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showGatewayModal, setShowGatewayModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
   const [paymentMethod, setPaymentMethod] = useState<'online' | 'bank' | 'crypto'>('online');
   const [transactionId, setTransactionId] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Advanced Gateway & Ledger states
+  const [activeSubTab, setActiveSubTab] = useState<'plans' | 'simulator' | 'transactions' | 'settings'>('plans');
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [loadingTx, setLoadingTx] = useState(false);
+  const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
+  const [gatewayConfig, setGatewayConfig] = useState<any>({
+    provider: 'sslcommerz',
+    mode: 'sandbox',
+    storeId: '',
+    storePasswd: '',
+    aamarStoreId: '',
+    aamarKey: ''
+  });
+  const [savingSettings, setSavingSettings] = useState(false);
+
   const plans = [
-    { name: 'Basic', price: 999, features: ['VAT Calculator', 'Tax History', 'Basic Reports'], color: 'bg-blue-500' },
-    { name: 'Pro', price: 2499, features: ['All Basic features', 'AI Tax Advisor', 'HS Code Finder', 'Priority Support'], color: 'bg-emerald-500', popular: true },
-    { name: 'Enterprise', price: 9999, features: ['All Pro features', 'Custom Compliance Audit', 'Multi-user Access', 'API Integration'], color: 'bg-purple-500' }
+    { 
+      name: 'Basic', 
+      price: 999, 
+      tagline: 'Standard Tax & VAT Tools',
+      features: ['VAT Calculator & Mushak 6.3 Templates', 'Historical Tax Filing Records', 'Basic Compliance Calendar', 'Standard Email Support'], 
+      color: 'bg-blue-600',
+      badge: 'Starter'
+    },
+    { 
+      name: 'Pro', 
+      price: 2499, 
+      tagline: 'Recommended for Accountants & SMBs',
+      features: ['All Basic features', 'AI Tax Advisor & NBR Assistant', 'Batch Invoice AI OCR', '7-Day Deadline Auto-Alerts', '1-Click NBR Script Generator', 'Priority WhatsApp Support'], 
+      color: 'bg-amber-500', 
+      popular: true,
+      badge: 'Most Popular'
+    },
+    { 
+      name: 'Enterprise', 
+      price: 9999, 
+      tagline: 'Corporate Firms & Multi-BIN Groups',
+      features: ['All Pro features', 'Unlimited Custom Compliance Audits', 'Multi-user Team Access & Roles', 'Odoo & ERPNext Full Sync', 'Dedicated Tax Lawyer Review', 'Custom Webhook / API Access'], 
+      color: 'bg-purple-600',
+      badge: 'Corporate'
+    }
   ];
 
   useEffect(() => {
     fetchSubscription();
+    fetchGatewayConfig();
   }, []);
+
+  useEffect(() => {
+    if (activeSubTab === 'transactions') {
+      fetchTransactions();
+    }
+  }, [activeSubTab]);
 
   const fetchSubscription = async () => {
     try {
@@ -9517,7 +9724,69 @@ function SubscriptionView() {
     }
   };
 
-  const handleSubscribe = async () => {
+  const fetchGatewayConfig = async () => {
+    try {
+      const res = await fetch('/api/payments/gateway-config');
+      const data = await res.json();
+      setGatewayConfig(prev => ({
+        ...prev,
+        provider: data.provider || 'sslcommerz',
+        mode: data.mode || 'sandbox',
+        storeId: data.storeIdPreview || '',
+        aamarStoreId: data.aamarStoreIdPreview || ''
+      }));
+    } catch (err) {
+      console.error("Config fetch error:", err);
+    }
+  };
+
+  const fetchTransactions = async () => {
+    setLoadingTx(true);
+    try {
+      const res = await fetch('/api/payments/aggregator/transactions?limit=25');
+      const data = await res.json();
+      setTransactions(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Tx fetch error:", err);
+    } finally {
+      setLoadingTx(false);
+    }
+  };
+
+  const handleSaveGatewaySettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingSettings(true);
+    try {
+      const res = await fetch('/api/payments/gateway-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: gatewayConfig.provider,
+          mode: gatewayConfig.mode,
+          sslcz_store_id: gatewayConfig.storeId,
+          sslcz_store_passwd: gatewayConfig.storePasswd,
+          aamarpay_store_id: gatewayConfig.aamarStoreId,
+          aamarpay_signature_key: gatewayConfig.aamarKey
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("Payment Gateway settings saved successfully!");
+        fetchGatewayConfig();
+      }
+    } catch (err) {
+      alert("Failed to save gateway settings.");
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const openAggregatorCheckout = (plan: any) => {
+    setSelectedPlan(plan);
+    setShowGatewayModal(true);
+  };
+
+  const handleManualSubscribe = async () => {
     if ((paymentMethod === 'online' || paymentMethod === 'crypto') && !transactionId) {
       alert(`Please enter ${paymentMethod === 'online' ? 'Transaction ID' : 'Transaction Hash'} for payment.`);
       return;
@@ -9526,7 +9795,7 @@ function SubscriptionView() {
     try {
       const endpoint = paymentMethod === 'online' ? '/api/subscription/subscribe' : 
                       paymentMethod === 'bank' ? '/api/subscription/bank-payment' :
-                      '/api/subscription/subscribe'; // Crypto also uses subscribe for now
+                      '/api/subscription/subscribe';
       
       const body = { 
         planName: selectedPlan.name, 
@@ -9553,81 +9822,581 @@ function SubscriptionView() {
     }
   };
 
-  if (loading) return <div className="flex justify-center py-20"><div className="w-8 h-8 border-4 border-[#10B981] border-t-transparent rounded-full animate-spin" /></div>;
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 space-y-4">
+        <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-zinc-400">Loading subscription and gateway state...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-8">
+      {/* Top Banner Guide */}
       <SectionGuide 
-        title="সাবস্ক্রিপশন গাইড"
+        title="সাবস্ক্রিপশন ও পেমেন্ট গেটওয়ে হাব"
         steps={[
-          "আপনার প্রয়োজন অনুযায়ী বেসিক, প্রো বা এন্টারপ্রাইজ প্ল্যান বেছে নিন।",
-          "অনলাইন পেমেন্ট (বিকাশ/নগদ), ব্যাংক ট্রান্সফার বা ক্রিপ্টোকারেন্সি ব্যবহার করে পে করুন।",
-          "পেমেন্ট কনফার্ম হওয়ার পর আপনার প্রো ফিচারগুলো আনলক হয়ে যাবে।",
-          "আপনার সাবস্ক্রিপশন হিস্ট্রি এবং রিনিউয়াল ডেট এখান থেকে ম্যানেজ করুন।"
+          "বাংলাদেশ ব্যাংক অনুমোদিত মাল্টি-চ্যানেল গেটওয়ে (SSLCOMMERZ / AamarPay) দিয়ে বিকাশ, নগদ, রকেট বা কার্ডে পে করুন।",
+          "পেমেন্ট নিশ্চিত হওয়ার সাথে সাথে আপনার প্রো ফিচার এবং এআই টুলস স্বয়ংক্রিয়ভাবে সক্রিয় হবে।",
+          "সিমুলেটর মোডে যেকোনো পেমেন্ট দৃশ্যকল্প (সফল, ব্যর্থ, বা বাতিল) তাৎক্ষণিক টেস্ট করুন।",
+          "প্রতিটি লেনদেনের জন্য এনবিআর ভ্যাট আইন ও মূসক ৬.৩ কমপ্লায়েন্ট ই-রশিদ ও চালান প্রিন্ট করুন।"
         ]}
       />
+
+      {/* Hero Active Status Bar */}
       {currentSub && currentSub.status === 'active' ? (
-        <div className="bg-emerald-50 border border-emerald-100 p-8 rounded-3xl flex items-center justify-between">
-          <div>
-            <h3 className="text-xl font-bold text-emerald-900">Active Subscription: {currentSub.planName}</h3>
-            <p className="text-emerald-700 mt-1">Your plan expires on {new Date(currentSub.expiresAt).toLocaleDateString()}</p>
+        <div className="p-6 sm:p-8 rounded-3xl bg-zinc-950 border border-emerald-500/30 text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden shadow-2xl">
+          <div className="absolute -top-12 -right-12 w-48 h-48 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+          <div className="space-y-2 relative z-10">
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                <CheckCircle2 size={12} />
+                ACTIVE PRO STATUS
+              </span>
+              <span className="text-xs text-zinc-400 font-mono">Plan: {currentSub.planName}</span>
+            </div>
+            <h3 className="text-2xl font-black font-display text-white">
+              {currentSub.planName} Annual License Active
+            </h3>
+            <p className="text-xs text-zinc-400">
+              Valid until <span className="text-emerald-400 font-semibold">{currentSub.expiresAt ? new Date(currentSub.expiresAt).toLocaleDateString('en-GB') : '1 Year'}</span> (Renewable anytime with instant license extension)
+            </p>
           </div>
-          <div className="px-6 py-2 bg-emerald-500 text-white rounded-full font-bold text-sm">
-            PRO STATUS
+
+          <div className="flex flex-wrap items-center gap-3 relative z-10">
+            <button
+              onClick={() => openAggregatorCheckout({ name: currentSub.planName, price: 2499 })}
+              className="px-5 py-3 rounded-2xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg flex items-center gap-2 active:scale-95"
+            >
+              <RefreshCw size={14} />
+              <span>Renew / Upgrade via Gateway</span>
+            </button>
+            <button
+              onClick={() => setActiveSubTab('transactions')}
+              className="px-4 py-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 font-bold text-xs transition-all flex items-center gap-1.5"
+            >
+              <FileText size={14} className="text-amber-400" />
+              <span>Filing Invoices</span>
+            </button>
           </div>
-        </div>
-      ) : currentSub && currentSub.status === 'pending' ? (
-        <div className="bg-amber-50 border border-amber-100 p-8 rounded-3xl">
-          <h3 className="text-xl font-bold text-amber-900">Payment Pending Verification</h3>
-          <p className="text-amber-700 mt-1">We are reviewing your bank payment for the {currentSub.planName} plan. This usually takes 24 hours.</p>
         </div>
       ) : (
-        <div className="text-center space-y-4">
-          <h2 className="text-3xl font-bold">Choose Your Plan</h2>
-          <p className="text-[#6B7280]">Unlock advanced tax tools and AI insights.</p>
+        <div className="p-6 rounded-3xl bg-zinc-950 border border-amber-500/20 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+              <ShieldCheck size={20} />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-zinc-100">Standard Tier Active</h4>
+              <p className="text-xs text-zinc-400">Upgrade to Pro for automated NBR form scripts, 7-day alert engine, and unlimited AI analysis.</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setActiveSubTab('plans')}
+            className="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-black text-xs uppercase tracking-wider transition-all shadow-md shrink-0"
+          >
+            Explore Pro Plans
+          </button>
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {plans.map((plan) => (
-          <div key={plan.name} className={cn(
-            "bg-white p-8 rounded-3xl shadow-sm border-2 transition-all relative overflow-hidden",
-            plan.popular ? "border-[#10B981] scale-105" : "border-[#F3F4F6]"
-          )}>
-            {plan.popular && (
-              <div className="absolute top-0 right-0 bg-[#10B981] text-white px-4 py-1 text-[10px] font-bold uppercase tracking-widest rounded-bl-xl">
-                Most Popular
-              </div>
-            )}
-            <div className={cn("w-12 h-12 rounded-2xl mb-6 flex items-center justify-center text-white", plan.color)}>
-              <ShieldCheck size={24} />
-            </div>
-            <h3 className="text-xl font-bold mb-2">{plan.name}</h3>
-            <div className="flex items-baseline gap-1 mb-6">
-              <span className="text-3xl font-bold">৳{plan.price}</span>
-              <span className="text-[#6B7280] text-sm">/year</span>
-            </div>
-            <ul className="space-y-4 mb-8">
-              {plan.features.map((f) => (
-                <li key={f} className="flex items-center gap-3 text-sm text-[#374151]">
-                  <CheckCircle2 size={16} className="text-[#10B981]" />
-                  {f}
-                </li>
-              ))}
-            </ul>
-            <button 
-              onClick={() => { setSelectedPlan(plan); setShowPaymentModal(true); }}
-              className={cn(
-                "w-full py-4 rounded-2xl font-bold transition-all",
-                plan.popular ? "bg-[#10B981] text-white shadow-lg" : "bg-[#F3F4F6] text-[#374151] hover:bg-[#E5E7EB]"
-              )}
-            >
-              Get Started
-            </button>
-          </div>
-        ))}
+      {/* Sub-view Navigation Tabs */}
+      <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 text-xs">
+        <button
+          onClick={() => setActiveSubTab('plans')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${
+            activeSubTab === 'plans'
+              ? 'bg-amber-400 text-zinc-950 shadow-md font-black'
+              : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          <Sparkles size={14} />
+          <span>Subscription Plans (প্ল্যানসমূহ)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab('simulator')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${
+            activeSubTab === 'simulator'
+              ? 'bg-amber-400 text-zinc-950 shadow-md font-black'
+              : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          <Smartphone size={14} />
+          <span>Gateway Sandbox Simulator (টেস্টিং গেটওয়ে)</span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-mono">Live</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab('transactions')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${
+            activeSubTab === 'transactions'
+              ? 'bg-amber-400 text-zinc-950 shadow-md font-black'
+              : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          <Receipt size={14} />
+          <span>Payment Ledger & Tax Receipts (চালান লেজার)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab('settings')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${
+            activeSubTab === 'settings'
+              ? 'bg-amber-400 text-zinc-950 shadow-md font-black'
+              : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          <Settings size={14} />
+          <span>Merchant & Gateway Config (কনফিগারেশন)</span>
+        </button>
       </div>
 
+      {/* TAB 1: SUBSCRIPTION PLANS */}
+      {activeSubTab === 'plans' && (
+        <div className="space-y-8">
+          <div className="text-center space-y-2 max-w-xl mx-auto">
+            <h2 className="text-3xl font-black font-display text-white">Choose Your Statutory License</h2>
+            <p className="text-xs text-zinc-400">
+              One-click instant activation via Bangladesh Bank licensed PSO (SSLCOMMERZ / AamarPay). Supports bKash, Nagad, Rocket, Upay, Visa, and Mastercard.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {plans.map((plan) => (
+              <div 
+                key={plan.name} 
+                className={cn(
+                  "bg-zinc-950 p-8 rounded-3xl border transition-all relative overflow-hidden flex flex-col justify-between shadow-xl",
+                  plan.popular 
+                    ? "border-amber-400/80 shadow-amber-500/10 scale-105" 
+                    : "border-zinc-800/80 hover:border-zinc-700"
+                )}
+              >
+                {plan.popular && (
+                  <div className="absolute top-0 right-0 bg-amber-400 text-zinc-950 px-4 py-1 text-[10px] font-black uppercase tracking-widest rounded-bl-xl shadow-md">
+                    {plan.badge}
+                  </div>
+                )}
+
+                <div className="space-y-6">
+                  <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg", plan.color)}>
+                    <ShieldCheck size={24} />
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest">{plan.badge}</span>
+                    <h3 className="text-2xl font-black text-white mt-0.5">{plan.name}</h3>
+                    <p className="text-xs text-zinc-400 mt-1">{plan.tagline}</p>
+                  </div>
+
+                  <div className="flex items-baseline gap-1.5 pb-4 border-b border-zinc-800/80">
+                    <span className="text-4xl font-black text-white font-mono">৳{plan.price.toLocaleString()}</span>
+                    <span className="text-zinc-500 text-xs font-semibold">/year (BDT)</span>
+                  </div>
+
+                  <ul className="space-y-3">
+                    {plan.features.map((f) => (
+                      <li key={f} className="flex items-start gap-2.5 text-xs text-zinc-300">
+                        <CheckCircle2 size={15} className="text-emerald-400 shrink-0 mt-0.5" />
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="pt-8 space-y-3">
+                  <button 
+                    onClick={() => openAggregatorCheckout(plan)}
+                    className={cn(
+                      "w-full py-4 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg active:scale-95",
+                      plan.popular 
+                        ? "bg-amber-400 hover:bg-amber-300 text-zinc-950 shadow-amber-400/20" 
+                        : "bg-zinc-800 hover:bg-zinc-700 text-white"
+                    )}
+                  >
+                    <Smartphone size={16} />
+                    <span>Pay with bKash / Nagad / Cards</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setSelectedPlan(plan);
+                      setShowPaymentModal(true);
+                    }}
+                    className="w-full py-2.5 rounded-xl text-[11px] font-semibold text-zinc-400 hover:text-zinc-200 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <span>Bank Slip or Crypto (Manual)</span>
+                    <ArrowRight size={12} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: GATEWAY SANDBOX SIMULATOR */}
+      {activeSubTab === 'simulator' && (
+        <div className="space-y-8 max-w-4xl mx-auto">
+          <div className="p-8 rounded-3xl bg-zinc-950 border border-zinc-800 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-zinc-800">
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-400 font-bold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  Zero-Credential Sandbox Testing
+                </span>
+                <h3 className="text-xl font-bold text-white mt-1">Interactive Gateway Simulator</h3>
+                <p className="text-xs text-zinc-400">Test full end-to-end checkout, callback hooks, and subscription unlocking without real money.</p>
+              </div>
+
+              <button
+                onClick={() => openAggregatorCheckout({ name: 'Pro', price: 2499 })}
+                className="px-6 py-3 rounded-2xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg flex items-center gap-2 shrink-0"
+              >
+                <Smartphone size={16} />
+                <span>Launch Test Drawer</span>
+              </button>
+            </div>
+
+            {/* Channels Overview */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider">Supported Multi-Channel Payment Methods</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center gap-3">
+                  <span className="w-8 h-8 rounded-xl bg-[#E2136E] text-white font-black text-[10px] flex items-center justify-center shadow-sm">bKash</span>
+                  <div>
+                    <p className="font-bold text-white">bKash Direct</p>
+                    <p className="text-[10px] text-zinc-400">PIN & OTP</p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center gap-3">
+                  <span className="w-8 h-8 rounded-xl bg-[#F7941D] text-white font-black text-[10px] flex items-center justify-center shadow-sm">নগদ</span>
+                  <div>
+                    <p className="font-bold text-white">Nagad Wallet</p>
+                    <p className="text-[10px] text-zinc-400">Post Office</p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center gap-3">
+                  <span className="w-8 h-8 rounded-xl bg-[#8C3494] text-white font-black text-[10px] flex items-center justify-center shadow-sm">DBBL</span>
+                  <div>
+                    <p className="font-bold text-white">Rocket / Nexus</p>
+                    <p className="text-[10px] text-zinc-400">Dutch-Bangla</p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center gap-3">
+                  <span className="w-8 h-8 rounded-xl bg-[#1A1F71] text-white font-black text-[10px] flex items-center justify-center shadow-sm">VISA</span>
+                  <div>
+                    <p className="font-bold text-white">Visa / Master</p>
+                    <p className="text-[10px] text-zinc-400">Credit/Debit</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Test Scenarios Guide */}
+            <div className="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-3 text-xs text-zinc-300">
+              <span className="font-bold text-amber-400 uppercase tracking-wider text-[11px] block">Test Simulation Capabilities</span>
+              <ul className="space-y-2 text-zinc-400">
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                  <span><strong>Simulate Success:</strong> Emulates 100% genuine bank authorization (`BTRX-XXXX`), updates subscription to Pro, and issues official Mushak 6.3 PDF tax receipt.</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <AlertCircle size={14} className="text-rose-400 shrink-0" />
+                  <span><strong>Simulate Decline:</strong> Emulates low MFS balance or card rejection with user error recovery.</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <X size={14} className="text-amber-400 shrink-0" />
+                  <span><strong>Simulate Cancel:</strong> Tests graceful checkout abort and safe return to plans.</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: TRANSACTION LEDGER & INVOICES */}
+      {activeSubTab === 'transactions' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-xl font-bold text-white">Payment Transactions & NBR Receipts</h3>
+              <p className="text-xs text-zinc-400">All gateway payments with digital Mushak 6.3 compliance e-invoices.</p>
+            </div>
+            <button
+              onClick={fetchTransactions}
+              className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 text-xs font-bold flex items-center gap-2 transition-all self-start sm:self-auto"
+            >
+              <RefreshCw size={14} className={loadingTx ? "animate-spin" : ""} />
+              <span>Refresh Ledger</span>
+            </button>
+          </div>
+
+          <div className="rounded-3xl bg-zinc-950 border border-zinc-800 overflow-hidden shadow-xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-zinc-900/80 text-zinc-400 uppercase font-mono tracking-wider border-b border-zinc-800 text-[10px]">
+                    <th className="py-4 px-6">Transaction Ref</th>
+                    <th className="py-4 px-4">Plan</th>
+                    <th className="py-4 px-4">Customer</th>
+                    <th className="py-4 px-4">Method / Channel</th>
+                    <th className="py-4 px-4 text-right">Amount (BDT)</th>
+                    <th className="py-4 px-4 text-center">Status</th>
+                    <th className="py-4 px-6 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-850 text-zinc-300">
+                  {transactions.map((tx: any) => (
+                    <tr key={tx.id || tx.tran_id} className="hover:bg-zinc-900/40 transition-colors">
+                      <td className="py-4 px-6 font-mono text-amber-400 font-bold">
+                        {tx.tran_id}
+                        {tx.is_sandbox ? (
+                          <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            Sandbox
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="py-4 px-4 font-bold text-white">{tx.plan_name}</td>
+                      <td className="py-4 px-4">
+                        <p className="text-zinc-200 font-medium">{tx.customer_name || 'Taxpayer'}</p>
+                        <p className="text-[10px] text-zinc-500">{tx.customer_email || 'user@vatx.bd'}</p>
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className="font-semibold text-zinc-200">{tx.card_type || 'Aggregator MFS'}</span>
+                        {tx.card_no && <p className="text-[10px] font-mono text-zinc-500">{tx.card_no}</p>}
+                      </td>
+                      <td className="py-4 px-4 text-right font-mono font-bold text-white">
+                        ৳{Number(tx.amount || 0).toLocaleString()}
+                      </td>
+                      <td className="py-4 px-4 text-center">
+                        <span className={cn(
+                          "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                          tx.status === 'VALID' || tx.status === 'SUCCESS' ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" :
+                          tx.status === 'FAILED' ? "bg-rose-500/15 text-rose-400 border border-rose-500/30" :
+                          "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                        )}>
+                          {tx.status}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6 text-right">
+                        <button
+                          onClick={() => {
+                            try {
+                              const inv = JSON.parse(tx.invoice_data || '{}');
+                              setSelectedReceipt({ ...tx, invoice: inv });
+                            } catch {
+                              setSelectedReceipt(tx);
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-400 border border-zinc-700 font-bold text-[11px] transition-all"
+                        >
+                          View Receipt
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {transactions.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-zinc-500 italic">
+                        No transactions recorded yet. Launch the Gateway Sandbox to test your first checkout!
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: MERCHANT & GATEWAY SETTINGS */}
+      {activeSubTab === 'settings' && (
+        <div className="max-w-3xl mx-auto space-y-6">
+          <form onSubmit={handleSaveGatewaySettings} className="p-8 rounded-3xl bg-zinc-950 border border-zinc-800 space-y-6 text-xs">
+            <div className="pb-4 border-b border-zinc-800">
+              <h3 className="text-lg font-bold text-white">Payment Gateway & PSO Configuration</h3>
+              <p className="text-xs text-zinc-400">Switch between Instant Sandbox Testing and Live Merchant Credentials.</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="font-bold text-zinc-300">Gateway Provider</label>
+                <select
+                  value={gatewayConfig.provider}
+                  onChange={(e) => setGatewayConfig({ ...gatewayConfig, provider: e.target.value })}
+                  className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-white font-medium focus:border-amber-400 focus:outline-none"
+                >
+                  <option value="sslcommerz">SSLCOMMERZ (All MFS + Cards + Net Banking)</option>
+                  <option value="aamarpay">AamarPay (Bangladesh Multi-Channel PSO)</option>
+                  <option value="simulator">Sandbox Simulator (Demo Only)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-bold text-zinc-300">Environment Mode</label>
+                <select
+                  value={gatewayConfig.mode}
+                  onChange={(e) => setGatewayConfig({ ...gatewayConfig, mode: e.target.value })}
+                  className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-white font-medium focus:border-amber-400 focus:outline-none"
+                >
+                  <option value="sandbox">Sandbox Testing (Simulated Callbacks)</option>
+                  <option value="live">Production / Live Merchant</option>
+                </select>
+              </div>
+            </div>
+
+            {/* SSLCOMMERZ Credentials */}
+            {gatewayConfig.provider === 'sslcommerz' && (
+              <div className="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-4">
+                <h4 className="font-bold text-amber-400 uppercase tracking-wider text-[11px]">SSLCOMMERZ Store Credentials</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-zinc-400 mb-1">Store ID</label>
+                    <input
+                      type="text"
+                      value={gatewayConfig.storeId}
+                      onChange={(e) => setGatewayConfig({ ...gatewayConfig, storeId: e.target.value })}
+                      placeholder="e.g. vatxbd001live"
+                      className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white font-mono focus:border-amber-400 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-zinc-400 mb-1">Store Password / Secret</label>
+                    <input
+                      type="password"
+                      value={gatewayConfig.storePasswd}
+                      onChange={(e) => setGatewayConfig({ ...gatewayConfig, storePasswd: e.target.value })}
+                      placeholder="••••••••••••"
+                      className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white font-mono focus:border-amber-400 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* AamarPay Credentials */}
+            {gatewayConfig.provider === 'aamarpay' && (
+              <div className="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-4">
+                <h4 className="font-bold text-amber-400 uppercase tracking-wider text-[11px]">AamarPay Merchant Keys</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-zinc-400 mb-1">AamarPay Store ID</label>
+                    <input
+                      type="text"
+                      value={gatewayConfig.aamarStoreId}
+                      onChange={(e) => setGatewayConfig({ ...gatewayConfig, aamarStoreId: e.target.value })}
+                      placeholder="e.g. aamarpaytest"
+                      className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white font-mono focus:border-amber-400 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-zinc-400 mb-1">Signature Key</label>
+                    <input
+                      type="password"
+                      value={gatewayConfig.aamarKey}
+                      onChange={(e) => setGatewayConfig({ ...gatewayConfig, aamarKey: e.target.value })}
+                      placeholder="••••••••••••"
+                      className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white font-mono focus:border-amber-400 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="p-4 rounded-xl bg-zinc-900 text-zinc-400 space-y-1 text-[11px]">
+              <p className="font-bold text-zinc-300">IPN Webhook Listener URL:</p>
+              <code className="text-amber-400 font-mono block">https://vatx.bd/api/payments/aggregator/ipn</code>
+              <p className="text-zinc-500">Provide this URL in your SSLCOMMERZ or AamarPay merchant portal for background auto-reconciliation.</p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={savingSettings}
+              className="w-full py-4 rounded-2xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg active:scale-95 disabled:opacity-50"
+            >
+              {savingSettings ? 'Saving Configuration...' : 'Save Payment Gateway Settings'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Modern Multi-Channel Aggregator Modal */}
+      <PaymentGatewayModal
+        isOpen={showGatewayModal}
+        onClose={() => setShowGatewayModal(false)}
+        planName={selectedPlan?.name || 'Pro'}
+        amount={selectedPlan?.price || 2499}
+        onSuccess={(receipt) => {
+          fetchSubscription();
+          fetchTransactions();
+        }}
+        customerInfo={{
+          name: 'Corporate Taxpayer',
+          email: 'taxpayer@vatx.bd',
+          phone: '01712345678'
+        }}
+      />
+
+      {/* Digital Receipt Modal for Ledger Viewing */}
+      {selectedReceipt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-3xl p-6 text-white space-y-4">
+            <div className="flex justify-between items-center pb-3 border-b border-zinc-800">
+              <h4 className="font-bold text-base">Mushak 6.3 Digital Tax Receipt</h4>
+              <button onClick={() => setSelectedReceipt(null)} className="p-1 text-zinc-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Transaction ID:</span>
+                <span className="font-mono text-amber-400 font-bold">{selectedReceipt.tran_id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Bank Auth Code:</span>
+                <span className="font-mono text-zinc-200">{selectedReceipt.bank_tran_id || 'BTRX-VERIFIED'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Payment Channel:</span>
+                <span className="text-zinc-200 font-semibold">{selectedReceipt.card_type}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Plan & License:</span>
+                <span className="text-white font-bold">{selectedReceipt.plan_name}</span>
+              </div>
+              <div className="flex justify-between border-t border-zinc-800 pt-2 font-bold">
+                <span className="text-zinc-200">Total Paid:</span>
+                <span className="text-amber-400 font-mono">৳{Number(selectedReceipt.amount || 0).toLocaleString()} BDT</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-4 border-t border-zinc-800">
+              <div className="flex items-center gap-2">
+                <div className="p-1 bg-white rounded">
+                  <QRCodeSVG value={`https://vatx.bd/verify/${selectedReceipt.tran_id}`} size={36} />
+                </div>
+                <span className="text-[10px] text-zinc-400">NBR Authenticated</span>
+              </div>
+              <button
+                onClick={() => window.print()}
+                className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-xs font-bold flex items-center gap-1.5"
+              >
+                <Printer size={14} />
+                <span>Print Mushak 6.3</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual / Bank Slip Fallback Modal */}
       <AnimatePresence>
         {showPaymentModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -9636,35 +10405,40 @@ function SubscriptionView() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowPaymentModal(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
             />
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden"
+              className="bg-zinc-950 border border-zinc-800 text-white w-full max-w-lg rounded-3xl shadow-2xl relative z-10 overflow-hidden"
             >
-              <div className="p-8 border-b border-[#F3F4F6] bg-[#F9FAFB]">
-                <h3 className="text-xl font-bold">Complete Subscription</h3>
-                <p className="text-sm text-[#6B7280] mt-1">Plan: {selectedPlan?.name} (৳{selectedPlan?.price})</p>
+              <div className="p-6 border-b border-zinc-800 bg-zinc-900/60 flex justify-between items-center">
+                <div>
+                  <h3 className="text-lg font-bold">Manual Payment & Bank Slip</h3>
+                  <p className="text-xs text-zinc-400">Plan: {selectedPlan?.name} (৳{selectedPlan?.price})</p>
+                </div>
+                <button onClick={() => setShowPaymentModal(false)} className="p-1 text-zinc-400 hover:text-white">
+                  <X size={18} />
+                </button>
               </div>
               
-              <div className="p-8 space-y-6">
-                <div className="flex p-1 bg-[#F3F4F6] rounded-2xl">
+              <div className="p-6 space-y-5 text-xs">
+                <div className="flex p-1 bg-zinc-900 border border-zinc-800 rounded-2xl">
                   <button 
                     onClick={() => setPaymentMethod('online')}
                     className={cn(
-                      "flex-1 py-3 rounded-xl font-bold text-sm transition-all",
-                      paymentMethod === 'online' ? "bg-white shadow-sm text-[#10B981]" : "text-[#6B7280]"
+                      "flex-1 py-2.5 rounded-xl font-bold transition-all",
+                      paymentMethod === 'online' ? "bg-amber-400 text-zinc-950 font-black" : "text-zinc-400"
                     )}
                   >
-                    Online Payment
+                    Direct MFS
                   </button>
                   <button 
                     onClick={() => setPaymentMethod('bank')}
                     className={cn(
-                      "flex-1 py-3 rounded-xl font-bold text-sm transition-all",
-                      paymentMethod === 'bank' ? "bg-white shadow-sm text-[#3B82F6]" : "text-[#6B7280]"
+                      "flex-1 py-2.5 rounded-xl font-bold transition-all",
+                      paymentMethod === 'bank' ? "bg-amber-400 text-zinc-950 font-black" : "text-zinc-400"
                     )}
                   >
                     Bank Transfer
@@ -9672,8 +10446,8 @@ function SubscriptionView() {
                   <button 
                     onClick={() => setPaymentMethod('crypto')}
                     className={cn(
-                      "flex-1 py-3 rounded-xl font-bold text-sm transition-all",
-                      paymentMethod === 'crypto' ? "bg-white shadow-sm text-amber-500" : "text-[#6B7280]"
+                      "flex-1 py-2.5 rounded-xl font-bold transition-all",
+                      paymentMethod === 'crypto' ? "bg-amber-400 text-zinc-950 font-black" : "text-zinc-400"
                     )}
                   >
                     Crypto
@@ -9681,67 +10455,62 @@ function SubscriptionView() {
                 </div>
 
                 {paymentMethod === 'online' ? (
-                  <div className="space-y-4">
-                    <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
-                      <p className="text-xs text-emerald-800 font-medium">Pay via bKash/Nagad/Rocket to: <strong>01917179881</strong></p>
+                  <div className="space-y-3">
+                    <div className="p-4 bg-amber-500/10 rounded-2xl border border-amber-500/20 text-amber-300">
+                      <p className="font-medium">Send Money to Merchant bKash/Nagad: <strong>01917179881</strong></p>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-[#374151] mb-2 uppercase tracking-wider">Transaction ID</label>
+                      <label className="block text-zinc-400 mb-1.5 font-bold uppercase tracking-wider text-[10px]">Transaction ID</label>
                       <input 
                         type="text"
                         value={transactionId}
                         onChange={(e) => setTransactionId(e.target.value)}
-                        placeholder="Enter your TrxID"
-                        className="w-full px-4 py-4 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl focus:ring-2 focus:ring-[#10B981] outline-none font-medium"
+                        placeholder="e.g. 9J2K8103A"
+                        className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-white font-mono focus:border-amber-400 focus:outline-none"
                       />
                     </div>
                   </div>
                 ) : paymentMethod === 'bank' ? (
-                  <div className="space-y-4">
-                    <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100 space-y-3">
-                      <p className="text-xs font-bold text-blue-900 uppercase tracking-wider">Bank Details</p>
-                      <div className="space-y-1">
-                        <p className="text-sm font-bold">VATX.BD</p>
-                        <p className="text-sm">Bank: City Bank</p>
-                        <p className="text-sm">A/C: 1234567890</p>
-                        <p className="text-sm">Branch: Gulshan</p>
+                  <div className="space-y-3">
+                    <div className="p-5 bg-zinc-900 rounded-2xl border border-zinc-800 space-y-2">
+                      <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Corporate Bank Account</p>
+                      <div className="space-y-1 text-zinc-300">
+                        <p className="font-bold text-white">VATX.BD TECHNOLOGIES LTD.</p>
+                        <p>Bank: The City Bank PLC</p>
+                        <p className="font-mono">Account: 1102938475001</p>
+                        <p>Branch: Gulshan Corporate Branch, Dhaka</p>
+                        <p className="font-mono">Routing: 225272635</p>
                       </div>
                     </div>
-                    <p className="text-xs text-[#6B7280] italic text-center">Please upload your payment slip or email it to billing@vatx.bd after transfer.</p>
+                    <p className="text-[11px] text-zinc-400 italic text-center">After transfer, email deposit slip to billing@vatx.bd</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    <div className="p-6 bg-amber-50 rounded-2xl border border-amber-100 space-y-3">
-                      <p className="text-xs font-bold text-amber-900 uppercase tracking-wider">Crypto Payment (USDT/USDC)</p>
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-zinc-500">Network</span>
-                          <span className="font-bold">Polygon / ERC20</span>
-                        </div>
-                        <div className="p-3 bg-white rounded-xl border border-amber-200 break-all text-[10px] font-mono">
-                          0x71C7656EC7ab88b098defB751B7401B5f6d8976F
-                        </div>
+                  <div className="space-y-3">
+                    <div className="p-5 bg-zinc-900 rounded-2xl border border-zinc-800 space-y-2">
+                      <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Crypto (USDT / USDC)</p>
+                      <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800 font-mono text-[10px] break-all text-amber-300">
+                        0x71C7656EC7ab88b098defB751B7401B5f6d8976F
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-[#374151] mb-2 uppercase tracking-wider">Transaction Hash</label>
+                      <label className="block text-zinc-400 mb-1.5 font-bold uppercase tracking-wider text-[10px]">Transaction Hash</label>
                       <input 
                         type="text"
                         value={transactionId}
                         onChange={(e) => setTransactionId(e.target.value)}
                         placeholder="0x..."
-                        className="w-full px-4 py-4 bg-[#F9FAFB] border border-[#E5E7EB] rounded-2xl focus:ring-2 focus:ring-amber-500 outline-none font-medium"
+                        className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-white font-mono focus:border-amber-400 focus:outline-none"
                       />
                     </div>
                   </div>
                 )}
 
                 <button 
-                  onClick={handleSubscribe}
+                  onClick={handleManualSubscribe}
                   disabled={submitting}
-                  className="w-full py-4 bg-[#111827] text-white rounded-2xl font-bold shadow-lg hover:bg-black transition-all disabled:opacity-50"
+                  className="w-full py-3.5 bg-amber-400 hover:bg-amber-300 text-zinc-950 rounded-2xl font-black text-xs uppercase tracking-wider transition-all disabled:opacity-50"
                 >
-                  {submitting ? 'Processing...' : 'Confirm Payment'}
+                  {submitting ? 'Verifying...' : 'Submit Manual Verification'}
                 </button>
               </div>
             </motion.div>

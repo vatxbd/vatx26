@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Smartphone, CreditCard, QrCode, CheckCircle2, AlertCircle, ArrowRight } from 'lucide-react';
+import { Smartphone, CreditCard, QrCode, CheckCircle2, AlertCircle, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { PaymentGatewayModal } from './PaymentGatewayModal';
 
 const MFSPayment: React.FC = () => {
   const [amount, setAmount] = useState<string>('');
@@ -10,6 +11,7 @@ const MFSPayment: React.FC = () => {
   const [transactionId, setTransactionId] = useState<string>('');
   const [paymentId, setPaymentId] = useState<number | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showGatewayModal, setShowGatewayModal] = useState(false);
 
   const handleNext = async () => {
     if (step === 'input' && amount) setStep('method');
@@ -52,11 +54,40 @@ const MFSPayment: React.FC = () => {
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
+    <div className="p-6 max-w-4xl mx-auto space-y-8">
+      {/* Aggregator Multi-Channel Callout */}
+      <div className="p-6 rounded-3xl bg-zinc-950 border border-amber-500/30 text-white flex flex-col sm:flex-row items-center justify-between gap-5 shadow-2xl relative overflow-hidden">
+        <div className="absolute -top-10 -right-10 w-40 h-40 bg-amber-500/10 rounded-full blur-xl pointer-events-none" />
+        <div className="flex items-center gap-4 relative z-10">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+            <ShieldCheck className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-base text-zinc-100">Bangladesh Multi-Channel Gateway (PSO)</h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                SSLCOMMERZ / AamarPay
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Supports bKash, Nagad, Rocket, Upay, Visa, Mastercard & Net Banking with automated Mushak 6.3 e-receipts and sandbox simulation.
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={() => setShowGatewayModal(true)}
+          className="px-6 py-3 rounded-2xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg flex items-center gap-2 shrink-0 active:scale-95"
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>Launch Multi-Channel Drawer</span>
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">MFS Payment</h1>
-          <p className="text-gray-500">Pay your VAT and Tax directly via bKash, Nagad, or Rocket</p>
+          <h1 className="text-3xl font-bold text-gray-900">Direct MFS Express</h1>
+          <p className="text-gray-500">Step-by-step QR and mobile deposit verification</p>
         </div>
         <div className="bg-orange-100 p-3 rounded-full">
           <Smartphone className="w-8 h-8 text-orange-600" />
@@ -239,6 +270,22 @@ const MFSPayment: React.FC = () => {
           </p>
         </div>
       </div>
+
+      <PaymentGatewayModal
+        isOpen={showGatewayModal}
+        onClose={() => setShowGatewayModal(false)}
+        planName="Custom Statutory Tax / VAT Deposit"
+        amount={Number(amount) || 2500}
+        onSuccess={(receipt) => {
+          setTransactionId(receipt.tran_id);
+          setStep('success');
+        }}
+        customerInfo={{
+          name: 'Taxpayer User',
+          email: 'taxpayer@vatx.bd',
+          phone: '01712345678'
+        }}
+      />
     </div>
   );
 };

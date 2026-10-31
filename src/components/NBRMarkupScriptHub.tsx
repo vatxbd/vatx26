@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   FileCode,
   Copy,
@@ -24,8 +24,19 @@ import {
   Layers,
   ArrowRight,
   ShieldCheck,
-  FileText
+  FileText,
+  ScanText,
+  AlertTriangle,
+  X,
+  Search
 } from 'lucide-react';
+import {
+  ocrImageFileClient,
+  ocrPdfFileClient,
+  normalizeBengaliDigits,
+  LowConfidenceWord,
+  OcrProgressState
+} from '../utils/clientOcrEngine';
 import {
   NBRDocumentData,
   ChallanEntry,
@@ -85,8 +96,19 @@ export default function NBRMarkupScriptHub({
     return { challans: [] };
   });
 
+  const [selectedOcrEngine, setSelectedOcrEngine] = useState<'markitdown' | 'gemini' | 'tesseract'>('markitdown');
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [ocrProgress, setOcrProgress] = useState<OcrProgressState | null>(null);
+  const [lowConfidenceWords, setLowConfidenceWords] = useState<LowConfidenceWord[]>([]);
+  const [lastOcrNotice, setLastOcrNotice] = useState<string | null>(null);
+  const [fallbackFile, setFallbackFile] = useState<File | null>(null);
+  const [canRunTesseractFallback, setCanRunTesseractFallback] = useState<boolean>(false);
+  const [canRunMarkItDownFallback, setCanRunMarkItDownFallback] = useState<boolean>(false);
+  const [canRunGeminiFallback, setCanRunGeminiFallback] = useState<boolean>(false);
+  const [currentQuestionMarkIdx, setCurrentQuestionMarkIdx] = useState<number>(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
   const [copiedType, setCopiedType] = useState<'script' | 'bookmarklet' | null>(null);
   const [copiedRowIdx, setCopiedRowIdx] = useState<number | null>(null);
   const [showEasyBanglaGuide, setShowEasyBanglaGuide] = useState<boolean>(true);
@@ -108,7 +130,8 @@ export default function NBRMarkupScriptHub({
   }, [initialData]);
 
   // Parse markup text into authentic structured data
-  const handleParse = (textToParse?: string) => {
+  // Accepts an optional normalizedText used specifically for number parsing while keeping original text intact
+  const handleParse = (textToParse?: string, normalizedForParsing?: string) => {
     const text = textToParse !== undefined ? textToParse : markupText;
     if (!text || !text.trim()) {
       setExtractedData({ challans: [] });
@@ -116,22 +139,202 @@ export default function NBRMarkupScriptHub({
     }
 
     try {
-      const parsed = parseMarkItDownToNBRData(text);
+      // If a normalized copy with English digits (0-9) is provided, use that for parsing calculations & challans
+      const parseTarget = normalizedForParsing || normalizeBengaliDigits(text);
+      const parsed = parseMarkItDownToNBRData(parseTarget);
       setExtractedData(parsed);
     } catch (err: any) {
       console.error("Markup parsing error:", err);
     }
   };
 
-  // Convert uploaded file using server MarkItDown endpoint
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  // Helper to extract lines containing [?]
+  const getLinesWithQuestionMark = (text: string) => {
+    if (!text) return [];
+    const lines = text.split('\n');
+    const result: { lineNumber: number; preview: string; index: number }[] = [];
+    let charOffset = 0;
+    lines.forEach((line, idx) => {
+      if (line.includes('[?]')) {
+        const lineIdxInText = charOffset + line.indexOf('[?]');
+        result.push({
+          lineNumber: idx + 1,
+          preview: line.trim(),
+          index: lineIdxInText
+        });
+      }
+      charOffset += line.length + 1;
+    });
+    return result;
+  };
+
+  // Helper to jump to and highlight [?] in the textarea
+  const focusAndHighlightQuestionMark = (targetIndex?: number) => {
+    if (!textareaRef.current || !markupText.includes('[?]')) return;
+    const matches: number[] = [];
+    let pos = markupText.indexOf('[?]');
+    while (pos !== -1) {
+      matches.push(pos);
+      pos = markupText.indexOf('[?]', pos + 3);
+    }
+    if (matches.length === 0) return;
+
+    let target = matches[0];
+    if (targetIndex !== undefined && matches.includes(targetIndex)) {
+      target = targetIndex;
+    } else {
+      const nextIdx = (currentQuestionMarkIdx + 1) % matches.length;
+      setCurrentQuestionMarkIdx(nextIdx);
+      target = matches[nextIdx];
+    }
+
+    textareaRef.current.focus();
+    textareaRef.current.setSelectionRange(target, target + 3);
+  };
+
+  // Client-Side Tesseract OCR Fallback
+  const runTesseractFallback = async (fileToProcess?: File) => {
+    const file = fileToProcess || fallbackFile;
     if (!file) return;
 
     setIsUploading(true);
     setUploadError(null);
+    setCanRunTesseractFallback(false);
+    setCanRunMarkItDownFallback(false);
+    setCanRunGeminiFallback(false);
+    setLowConfidenceWords([]);
+
+    const fileNameLower = file.name.toLowerCase();
+    const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(fileNameLower);
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(fileNameLower);
 
     try {
+      if (isImage) {
+        setOcrProgress({
+          currentPage: 1,
+          totalPages: 1,
+          percent: 10,
+          statusText: isBn ? 'ব্রাউজারে ছবি অপ্টিমাইজেশন ও Tesseract OCR চলছে...' : 'Preprocessing image & running Tesseract OCR in browser...'
+        });
+
+        const ocrResult = await ocrImageFileClient(file, (p) => {
+          setOcrProgress(p);
+        });
+
+        const rawText = ocrResult.originalText.trim();
+        if (!rawText) {
+          throw new Error(
+            isBn
+              ? 'Tesseract ছবি থেকে কোনো লেখা শনাক্ত করতে পারেনি।'
+              : 'Could not extract text from this image via Tesseract.'
+          );
+        }
+
+        const newMarkup = markupText && markupText.trim()
+          ? `${markupText.trim()}\n\n--- [Tesseract OCR: ${file.name}] ---\n${rawText}`
+          : rawText;
+
+        const newNormalizedForParsing = markupText && markupText.trim()
+          ? `${normalizeBengaliDigits(markupText.trim())}\n\n--- [Tesseract OCR: ${file.name}] ---\n${ocrResult.normalizedText}`
+          : ocrResult.normalizedText;
+
+        setMarkupText(newMarkup);
+        handleParse(newMarkup, newNormalizedForParsing);
+
+        if (ocrResult.lowConfidenceWords.length > 0) {
+          setLowConfidenceWords(ocrResult.lowConfidenceWords);
+        }
+
+        setLastOcrNotice(
+          isBn
+            ? `Tesseract ফলব্যাক দ্বারা "${file.name}" থেকে সফলভাবে টেক্সট এক্সট্র্যাক্ট করা হয়েছে।`
+            : `Extracted text via Tesseract fallback for "${file.name}".`
+        );
+      } else if (isPdf) {
+        setOcrProgress({
+          currentPage: 1,
+          totalPages: 1,
+          percent: 5,
+          statusText: isBn ? 'পিডিএফ বিশ্লেষণ ও ব্রাউজারে Tesseract OCR চলছে...' : 'Analyzing PDF & running Tesseract OCR in browser...'
+        });
+
+        const ocrResult = await ocrPdfFileClient(file, (p) => {
+          setOcrProgress(p);
+        });
+
+        const rawText = ocrResult.originalText.trim();
+        if (!rawText) {
+          throw new Error(
+            isBn
+              ? 'পিডিএফ থেকে কোনো টেক্সট বা টেবিল শনাক্ত করা সম্ভব হয়নি।'
+              : 'Could not extract text from this PDF.'
+          );
+        }
+
+        const newMarkup = markupText && markupText.trim()
+          ? `${markupText.trim()}\n\n--- [Tesseract PDF: ${file.name}] ---\n${rawText}`
+          : rawText;
+
+        const newNormalizedForParsing = markupText && markupText.trim()
+          ? `${normalizeBengaliDigits(markupText.trim())}\n\n--- [Tesseract PDF: ${file.name}] ---\n${ocrResult.normalizedText}`
+          : ocrResult.normalizedText;
+
+        setMarkupText(newMarkup);
+        handleParse(newMarkup, newNormalizedForParsing);
+
+        if (ocrResult.lowConfidenceWords.length > 0) {
+          setLowConfidenceWords(ocrResult.lowConfidenceWords);
+        }
+
+        setLastOcrNotice(
+          isBn
+            ? `Tesseract ফলব্যাক দ্বারা "${file.name}" (${ocrResult.pagesProcessed} পৃষ্ঠা) সম্পন্ন হয়েছে।`
+            : `Extracted text via Tesseract fallback for "${file.name}" (${ocrResult.pagesProcessed} pages).`
+        );
+      } else {
+        throw new Error(
+          isBn ? 'Tesseract শুধুমাত্র ছবি এবং পিডিএফ সমর্থন করে।' : 'Tesseract only supports images and PDFs.'
+        );
+      }
+    } catch (err: any) {
+      console.error("Tesseract fallback error:", err);
+      setCanRunMarkItDownFallback(true);
+      setCanRunGeminiFallback(true);
+      setUploadError(
+        err.message ||
+        (isBn
+          ? 'Tesseract OCR সম্পন্ন করতে ব্যর্থ হয়েছে।'
+          : 'Tesseract OCR failed.')
+      );
+    } finally {
+      setIsUploading(false);
+      setOcrProgress(null);
+    }
+  };
+
+  // 1. Microsoft MarkItDown OCR Engine (converts PDFs, images, DOCX, XLSX, TXT with MarkItDown + AI Vision)
+  const runMarkItDownConversion = async (fileToProcess?: File) => {
+    const file = fileToProcess || fallbackFile;
+    if (!file) return;
+
+    setIsUploading(true);
+    setUploadError(null);
+    setCanRunTesseractFallback(false);
+    setCanRunGeminiFallback(false);
+    setCanRunMarkItDownFallback(false);
+    setFallbackFile(file);
+    setLowConfidenceWords([]);
+
+    try {
+      setOcrProgress({
+        currentPage: 1,
+        totalPages: 1,
+        percent: 25,
+        statusText: isBn
+          ? 'Microsoft MarkItDown ইঞ্জিন দিয়ে ফাইল এনকোডিং ও প্রসেসিং হচ্ছে...'
+          : 'Converting document via Microsoft MarkItDown engine...'
+      });
+
       const reader = new FileReader();
       const base64Promise = new Promise<string>((resolve, reject) => {
         reader.onload = () => {
@@ -142,6 +345,15 @@ export default function NBRMarkupScriptHub({
       });
       reader.readAsDataURL(file);
       const base64 = await base64Promise;
+
+      setOcrProgress({
+        currentPage: 1,
+        totalPages: 1,
+        percent: 65,
+        statusText: isBn
+          ? 'Microsoft MarkItDown ও এআই ভিশন দিয়ে আসল টেবিল ও চালান এক্সট্র্যাক্ট হচ্ছে...'
+          : 'Extracting authentic tables with Microsoft MarkItDown...'
+      });
 
       const res = await fetch('/api/markitdown/convert', {
         method: 'POST',
@@ -154,19 +366,233 @@ export default function NBRMarkupScriptHub({
         })
       });
 
-      if (!res.ok) {
-        throw new Error(`MarkItDown conversion failed with status ${res.status}`);
+      let json: any = null;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        json = await res.json().catch(() => null);
+      } else {
+        const rawText = await res.text().catch(() => '');
+        try {
+          json = JSON.parse(rawText);
+        } catch {
+          json = null;
+        }
       }
 
-      const json = await res.json();
-      const convertedMarkdown = json.markdown || '';
-      setMarkupText(convertedMarkdown);
-      handleParse(convertedMarkdown);
+      if (!res.ok || !json?.markdown) {
+        setCanRunTesseractFallback(true);
+        setCanRunGeminiFallback(true);
+        throw new Error(
+          json?.error ||
+          (isBn
+            ? `Microsoft MarkItDown কনভার্সন ব্যর্থ হয়েছে (কোড: ${res.status})।`
+            : `Microsoft MarkItDown conversion failed (status: ${res.status}).`)
+        );
+      }
+
+      const returnedMarkdown = (json.markdown || '').trim();
+      const newMarkup = markupText && markupText.trim()
+        ? `${markupText.trim()}\n\n--- [Microsoft MarkItDown: ${file.name}] ---\n${returnedMarkdown}`
+        : returnedMarkdown;
+
+      const newNormalizedForParsing = normalizeBengaliDigits(newMarkup);
+      setMarkupText(newMarkup);
+      handleParse(newMarkup, newNormalizedForParsing);
+
+      setLastOcrNotice(
+        isBn
+          ? `Microsoft MarkItDown দ্বারা "${file.name}" সফলভাবে পরিচ্ছন্ন মার্কডাউন টেবিলে রূপান্তরিত হয়েছে!`
+          : `Extracted clean Markdown table from "${file.name}" via Microsoft MarkItDown.`
+      );
     } catch (err: any) {
-      console.error("Upload & Convert error:", err);
-      setUploadError(err.message || "Failed to convert file to markup text");
+      console.error("MarkItDown conversion error:", err);
+      setCanRunTesseractFallback(true);
+      setCanRunGeminiFallback(true);
+      setUploadError(
+        err.message ||
+        (isBn
+          ? 'Microsoft MarkItDown কনভার্সন সম্পন্ন করতে ব্যর্থ হয়েছে।'
+          : 'Microsoft MarkItDown conversion failed.')
+      );
     } finally {
       setIsUploading(false);
+      setOcrProgress(null);
+    }
+  };
+
+  // 2. Gemini 2.5 Flash AI OCR Engine (Markdown Tables)
+  const runGeminiOcr = async (fileToProcess?: File) => {
+    const file = fileToProcess || fallbackFile;
+    if (!file) return;
+
+    const fileNameLower = file.name.toLowerCase();
+    const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(fileNameLower);
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(fileNameLower);
+
+    // If it's a docx/xlsx, delegate to MarkItDown
+    if (!isImage && !isPdf) {
+      return runMarkItDownConversion(file);
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+    setCanRunTesseractFallback(false);
+    setCanRunMarkItDownFallback(false);
+    setCanRunGeminiFallback(false);
+    setFallbackFile(file);
+    setLowConfidenceWords([]);
+
+    try {
+      setOcrProgress({
+        currentPage: 1,
+        totalPages: 1,
+        percent: 40,
+        statusText: isBn
+          ? 'Gemini 2.5 Flash এআই দিয়ে ডকুমেন্ট স্ক্যান ও মার্কডাউন টেবিল এক্সট্র্যাক্ট হচ্ছে...'
+          : 'Extracting clean Markdown table with Gemini 2.5 Flash...'
+      });
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/ocr-markdown', {
+        method: 'POST',
+        body: formData
+      });
+
+      let data: any = null;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await res.json().catch(() => null);
+      } else {
+        const rawText = await res.text().catch(() => '');
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = null;
+        }
+      }
+
+      if (!res.ok) {
+        const errMsg = data?.error || (
+          res.status === 429
+            ? (isBn
+                ? 'দৈনিক এআই লিমিট শেষ হয়েছে (১৫ বার প্রতি দিন)। অনুগ্রহ করে Microsoft MarkItDown বা Tesseract OCR ব্যবহার করুন।'
+                : 'Daily AI limit reached (15 requests/day). Please use Microsoft MarkItDown or Tesseract OCR.')
+            : (isBn
+                ? `Gemini এআই ওসিআর রিকোয়েস্ট ব্যর্থ হয়েছে (কোড: ${res.status})।`
+                : `Gemini AI OCR request failed (status: ${res.status}).`)
+        );
+        setCanRunTesseractFallback(true);
+        setCanRunMarkItDownFallback(true);
+        setFallbackFile(file);
+        throw new Error(errMsg);
+      }
+
+      if (!data || typeof data !== 'object') {
+        setCanRunTesseractFallback(true);
+        setCanRunMarkItDownFallback(true);
+        setFallbackFile(file);
+        throw new Error(
+          isBn
+            ? 'সার্ভার থেকে সঠিক ফরম্যাটে ফলাফল পাওয়া যায়নি। অনুগ্রহ করে Microsoft MarkItDown বা Tesseract ব্যবহার করুন।'
+            : 'Invalid response received from OCR server. Falling back to alternative OCR engine.'
+        );
+      }
+
+      const returnedMarkdown = (data.markdown || '').trim();
+
+      if (!returnedMarkdown) {
+        setCanRunTesseractFallback(true);
+        setCanRunMarkItDownFallback(true);
+        setFallbackFile(file);
+        throw new Error(
+          isBn
+            ? 'ডকুমেন্ট থেকে কোনো টেক্সট বা টেবিল শনাক্ত করা সম্ভব হয়নি।'
+            : 'Could not extract text or table from this document.'
+        );
+      }
+
+      const newMarkup = markupText && markupText.trim()
+        ? `${markupText.trim()}\n\n--- [AI OCR: ${file.name}] ---\n${returnedMarkdown}`
+        : returnedMarkdown;
+
+      const newNormalizedForParsing = normalizeBengaliDigits(newMarkup);
+      setMarkupText(newMarkup);
+      handleParse(newMarkup, newNormalizedForParsing);
+
+      setLastOcrNotice(
+        isBn
+          ? `Gemini AI দ্বারা "${file.name}" সফলভাবে পরিষ্কার মার্কডাউন টেবিলে রূপান্তরিত হয়েছে!`
+          : `Extracted clean Markdown table from "${file.name}" with Gemini AI.`
+      );
+    } catch (err: any) {
+      console.error("Gemini OCR error:", err);
+      setCanRunTesseractFallback(true);
+      setCanRunMarkItDownFallback(true);
+      setUploadError(
+        err.message ||
+        (isBn
+          ? 'Gemini এআই ওসিআর সম্পন্ন করতে ব্যর্থ হয়েছে।'
+          : 'Gemini AI OCR failed.')
+      );
+    } finally {
+      setIsUploading(false);
+      setOcrProgress(null);
+    }
+  };
+
+  // Primary File Upload Router based on user-selected engine
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Reset error & states
+    setUploadError(null);
+    setCanRunTesseractFallback(false);
+    setCanRunMarkItDownFallback(false);
+    setCanRunGeminiFallback(false);
+    setFallbackFile(file);
+    setOcrProgress(null);
+    setLowConfidenceWords([]);
+    setLastOcrNotice(null);
+
+    // File validation: Size limit (max 10MB)
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setUploadError(
+        isBn
+          ? 'ফাইলের সাইজ অনেক বড় (১০ মেগাবাইটের বেশি)। অনুগ্রহ করে ১০MB এর ছোট ফাইল নির্বাচন করুন।'
+          : 'File size is too large (exceeds 10MB). Please select a file under 10MB.'
+      );
+      e.target.value = '';
+      return;
+    }
+
+    const fileNameLower = file.name.toLowerCase();
+    const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(fileNameLower);
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(fileNameLower);
+    const isSupportedDoc = isImage || isPdf || /\.(docx|xlsx|csv|txt)$/i.test(fileNameLower);
+
+    if (!isSupportedDoc) {
+      setUploadError(
+        isBn
+          ? 'অসমর্থিত ফাইল ফরম্যাট! অনুগ্রহ করে PDF, ছবি (JPG, PNG, WebP), অথবা DOCX/XLSX ফাইল দিন।'
+          : 'Unsupported file format! Please provide a PDF, image (JPG, PNG, WebP), or DOCX/XLSX file.'
+      );
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      if (selectedOcrEngine === 'markitdown') {
+        await runMarkItDownConversion(file);
+      } else if (selectedOcrEngine === 'gemini') {
+        await runGeminiOcr(file);
+      } else {
+        await runTesseractFallback(file);
+      }
+    } finally {
       e.target.value = '';
     }
   };
@@ -618,26 +1044,122 @@ export default function NBRMarkupScriptHub({
               )}
             </div>
 
-            {/* Microsoft MarkItDown Document Converter Card */}
-            <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200/70 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-zinc-700 flex items-center gap-1.5">
-                  <Upload size={14} className="text-emerald-600" />
-                  {isBn ? 'ডকুমেন্ট ফাইল কনভার্ট (PDF/DOCX/XLSX/Image)' : 'Convert Document with MarkItDown'}
-                </span>
-                <span className="text-[9px] font-black uppercase px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
-                  Microsoft MarkItDown
-                </span>
+            {/* File Upload Card with Microsoft MarkItDown OCR, Gemini AI OCR & Tesseract Fallback */}
+            <div className="p-4 md:p-5 rounded-2xl bg-zinc-50 border border-zinc-200/80 space-y-4 shadow-xs">
+              {/* OCR Engine Switcher */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black uppercase text-zinc-500 tracking-wider">
+                    {isBn ? 'ওসিআর / কনভার্সন ইঞ্জিন নির্বাচন করুন:' : 'Select OCR / Conversion Engine:'}
+                  </span>
+                  <span className="text-[9px] font-mono text-zinc-400">
+                    {selectedOcrEngine === 'markitdown' ? 'v2.0 MarkItDown' : selectedOcrEngine === 'gemini' ? 'Gemini 2.5 Flash' : 'Tesseract v5'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 bg-zinc-200/70 p-1 rounded-xl gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOcrEngine('markitdown')}
+                    className={`py-2 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      selectedOcrEngine === 'markitdown'
+                        ? 'bg-white text-emerald-900 shadow-sm border border-emerald-300/60 ring-1 ring-emerald-500/20'
+                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-white/40'
+                    }`}
+                  >
+                    <Sparkles size={13} className="text-emerald-600 shrink-0" />
+                    <span className="truncate">MarkItDown</span>
+                    <span className="hidden sm:inline-block text-[8px] px-1 py-0.2 bg-emerald-100 text-emerald-800 rounded font-black uppercase">
+                      {isBn ? 'আসল টেবিল' : 'Authentic'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOcrEngine('gemini')}
+                    className={`py-2 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      selectedOcrEngine === 'gemini'
+                        ? 'bg-white text-indigo-900 shadow-sm border border-indigo-300/60 ring-1 ring-indigo-500/20'
+                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-white/40'
+                    }`}
+                  >
+                    <ShieldCheck size={13} className="text-indigo-600 shrink-0" />
+                    <span className="truncate">Gemini 2.5</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOcrEngine('tesseract')}
+                    className={`py-2 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      selectedOcrEngine === 'tesseract'
+                        ? 'bg-white text-zinc-900 shadow-sm border border-zinc-300 ring-1 ring-zinc-500/20'
+                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-white/40'
+                    }`}
+                  >
+                    <ScanText size={13} className="text-zinc-600 shrink-0" />
+                    <span className="truncate">{isBn ? 'Tesseract' : 'Tesseract'}</span>
+                    <span className="hidden sm:inline-block text-[8px] px-1 py-0.2 bg-zinc-200 text-zinc-700 rounded font-black uppercase">
+                      {isBn ? 'অফলাইন' : 'Offline'}
+                    </span>
+                  </button>
+                </div>
               </div>
-              <p className="text-[11px] text-zinc-500 leading-relaxed">
-                {isBn
-                  ? 'যেকোনো পিডিএফ বা ছবি ফাইল আপলোড করুন; মাইক্রোসফট মার্কইটডাউন ইঞ্জিন সরাসরি টেক্সট এবং টেবিল মার্কআপ তৈরি করবে।'
-                  : 'Upload certificate PDFs, salary slips, or images to convert into markdown tables using Microsoft MarkItDown.'}
-              </p>
+
+              {/* Dynamic Header & Engine Description */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-zinc-800 flex items-center gap-1.5">
+                    {selectedOcrEngine === 'markitdown' ? (
+                      <>
+                        <Sparkles size={14} className="text-emerald-600" />
+                        <span>{isBn ? 'মাইক্রোসফট মার্কইটডাউন (Microsoft MarkItDown OCR)' : 'Microsoft MarkItDown OCR'}</span>
+                      </>
+                    ) : selectedOcrEngine === 'gemini' ? (
+                      <>
+                        <ShieldCheck size={14} className="text-indigo-600" />
+                        <span>{isBn ? 'জেমিনি ২.৫ ফ্ল্যাশ এআই ওসিআর (Gemini AI OCR)' : 'Gemini 2.5 Flash AI OCR'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <ScanText size={14} className="text-zinc-700" />
+                        <span>{isBn ? 'টেসেরাক্ট ব্রাউজার ক্লায়েন্ট ওসিআর (Tesseract OCR)' : 'In-Browser Tesseract OCR'}</span>
+                      </>
+                    )}
+                  </span>
+                  <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md flex items-center gap-1 ${
+                    selectedOcrEngine === 'markitdown'
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300/60'
+                      : selectedOcrEngine === 'gemini'
+                        ? 'bg-indigo-100 text-indigo-800 border border-indigo-300/60'
+                        : 'bg-zinc-200 text-zinc-800'
+                  }`}>
+                    {selectedOcrEngine === 'markitdown'
+                      ? 'MarkItDown + AI Vision'
+                      : selectedOcrEngine === 'gemini'
+                        ? 'Gemini 2.5 Flash'
+                        : '100% In-Browser Offline'}
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-zinc-600 leading-relaxed">
+                  {selectedOcrEngine === 'markitdown'
+                    ? (isBn
+                        ? 'মাইক্রোসফট মার্কইটডাউন (Microsoft MarkItDown) এবং এআই ভিশন দিয়ে PDF, চালান বা সার্টিফিকেট ছবি (JPG/PNG/WebP), অথবা Word/Excel (DOCX/XLSX) সরাসরি পরিচ্ছন্ন মার্কডাউন টেবিলে কনভার্ট করুন।'
+                        : 'Convert PDFs, images (JPG/PNG/WebP), Word (DOCX) or Excel (XLSX) into clean GitHub-Flavored Markdown tables via Microsoft MarkItDown + AI Vision with authentic figures.')
+                    : selectedOcrEngine === 'gemini'
+                      ? (isBn
+                          ? 'Gemini 2.5 Flash এআই দিয়ে স্ক্যান করা PDF বা চালান ছবি সরাসরি মার্কডাউন টেবিলে রূপান্তর করুন।'
+                          : 'Extract clean Markdown tables directly from scanned PDF or challan images with Gemini 2.5 Flash AI.')
+                      : (isBn
+                          ? 'কোনো সার্ভার আপলোড ছাড়াই ব্রাউজারে সম্পূর্ণ অফলাইনে Tesseract দিয়ে বাংলা+ইংরেজি ওসিআর চালান।'
+                          : 'Process image and PDF OCR 100% offline in your browser with Tesseract.js (ben+eng).')}
+                </p>
+              </div>
+
+              {/* Upload Input Button */}
               <label className="flex items-center justify-center gap-2 px-4 py-3 bg-white border border-dashed border-zinc-300 hover:border-emerald-500 rounded-xl cursor-pointer text-xs font-bold text-zinc-700 hover:text-emerald-700 transition-all shadow-sm">
                 <input
                   type="file"
-                  accept=".pdf,.docx,.xlsx,.txt,.png,.jpg,.jpeg"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.docx,.xlsx,.csv,.txt"
                   onChange={handleFileUpload}
                   disabled={isUploading}
                   className="hidden"
@@ -645,33 +1167,244 @@ export default function NBRMarkupScriptHub({
                 {isUploading ? (
                   <>
                     <RefreshCw size={14} className="animate-spin text-emerald-600" />
-                    <span>{isBn ? 'কনভার্ট হচ্ছে...' : 'Converting via MarkItDown OCR...'}</span>
+                    <span>{ocrProgress?.statusText || (isBn ? 'ডকুমেন্ট প্রসেস হচ্ছে...' : 'Processing document...')}</span>
                   </>
                 ) : (
                   <>
                     <Upload size={14} className="text-emerald-600" />
-                    <span>{isBn ? 'ফাইল নির্বাচন করুন (.pdf, .docx, .png)' : 'Select Document to Convert'}</span>
+                    <span>
+                      {selectedOcrEngine === 'markitdown'
+                        ? (isBn ? 'MarkItDown দিয়ে ফাইল দিন (PDF, ছবি, DOCX, XLSX)' : 'Convert with Microsoft MarkItDown (PDF, Images, DOCX, XLSX)')
+                        : selectedOcrEngine === 'gemini'
+                          ? (isBn ? 'Gemini AI দিয়ে ফাইল দিন (PDF, JPG, PNG, WebP)' : 'Upload with Gemini AI (PDF, JPG, PNG, WebP)')
+                          : (isBn ? 'Tesseract অফলাইন OCR চালান (PDF, JPG, PNG)' : 'Run In-Browser Tesseract OCR (PDF, JPG, PNG)')}
+                    </span>
                   </>
                 )}
               </label>
 
+              {/* Requirement 7: Loading State & Progress Bar in Bengali */}
+              {isUploading && ocrProgress && (
+                <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-900">
+                    <span className="flex items-center gap-1.5">
+                      <RefreshCw size={12} className="animate-spin text-emerald-600" />
+                      {ocrProgress.statusText}
+                    </span>
+                    <span className="font-mono text-emerald-700">
+                      {ocrProgress.totalPages > 1
+                        ? `${isBn ? 'পৃষ্ঠা' : 'Page'} ${ocrProgress.currentPage}/${ocrProgress.totalPages} — ${ocrProgress.percent}%`
+                        : `${ocrProgress.percent}%`}
+                    </span>
+                  </div>
+                  <div className="w-full bg-emerald-100 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-emerald-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${Math.max(5, Math.min(100, ocrProgress.percent))}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Friendly Error Message & Multi-Engine Fallback Options */}
               {uploadError && (
-                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-                  <AlertCircle size={14} className="shrink-0" />
-                  <span>{uploadError}</span>
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs space-y-2.5">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle size={15} className="shrink-0 text-rose-600 mt-0.5" />
+                    <span className="leading-relaxed">{uploadError}</span>
+                  </div>
+
+                  {fallbackFile && (canRunMarkItDownFallback || canRunGeminiFallback || canRunTesseractFallback) && (
+                    <div className="pt-2 border-t border-rose-200 space-y-2">
+                      <span className="text-[11px] font-bold text-rose-900 block">
+                        {isBn
+                          ? 'বিকল্প ইঞ্জিন দিয়ে এই ফাইলটি পুনরায় চালাতে চান?'
+                          : 'Would you like to retry processing this file with an alternative engine?'}
+                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {canRunMarkItDownFallback && (
+                          <button
+                            type="button"
+                            onClick={() => runMarkItDownConversion(fallbackFile)}
+                            className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                          >
+                            <Sparkles size={13} />
+                            {isBn ? 'Microsoft MarkItDown চালান' : 'Run Microsoft MarkItDown'}
+                          </button>
+                        )}
+                        {canRunGeminiFallback && (
+                          <button
+                            type="button"
+                            onClick={() => runGeminiOcr(fallbackFile)}
+                            className="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                          >
+                            <ShieldCheck size={13} />
+                            {isBn ? 'Gemini AI চালান' : 'Run Gemini AI OCR'}
+                          </button>
+                        )}
+                        {canRunTesseractFallback && (
+                          <button
+                            type="button"
+                            onClick={() => runTesseractFallback(fallbackFile)}
+                            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-900 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                          >
+                            <ScanText size={13} />
+                            {isBn ? 'Tesseract ফলব্যাক চালান' : 'Run Tesseract Fallback'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {lastOcrNotice && !uploadError && (
+                <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-medium flex items-center justify-between">
+                  <span>✓ {lastOcrNotice}</span>
+                  <button
+                    onClick={() => setLastOcrNotice(null)}
+                    className="text-emerald-600 hover:text-emerald-800 cursor-pointer"
+                  >
+                    <X size={12} />
+                  </button>
                 </div>
               )}
             </div>
 
+            {/* Requirement 9: Notice */}
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300/80 text-amber-950 text-xs flex items-start gap-2.5 shadow-xs">
+              <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <p className="font-black text-amber-900">
+                  {isBn
+                    ? 'AI OCR ভুল করতে পারে। স্ক্রিপ্ট তৈরির আগে চালান নম্বর ও টাকার অংক মূল ডকুমেন্টের সাথে মিলিয়ে নিন।'
+                    : 'AI OCR can make mistakes. Please verify challan numbers and amounts against original documents before generating script.'}
+                </p>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  {isBn
+                    ? 'নিচের বক্সে টেক্সট সরাসরি এডিটযোগ্য। ভুল বা অস্পষ্ট কোনো অক্ষর থাকলে তা ঠিক করে নিন।'
+                    : 'The text box below is fully editable. You can correct any misread characters directly.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Requirement 10: Highlight any [?] in the text box so the user can fix it */}
+            {(() => {
+              const unreadableCount = (markupText.match(/\[\?\]/g) || []).length;
+              const linesWithQM = getLinesWithQuestionMark(markupText);
+              if (unreadableCount === 0) return null;
+
+              return (
+                <div className="p-3.5 rounded-2xl bg-amber-50 border-2 border-amber-400 text-amber-950 text-xs space-y-2.5 shadow-xs animate-in fade-in">
+                  <div className="flex items-center justify-between font-black">
+                    <span className="flex items-center gap-1.5 text-amber-900">
+                      <AlertTriangle size={15} className="text-amber-600 animate-pulse shrink-0" />
+                      {isBn
+                        ? `অস্পষ্ট অংশ শনাক্ত হয়েছে (${unreadableCount}টি [?]) — মূল ডকুমেন্টের সাথে মেলান:`
+                        : `Unreadable parts detected (${unreadableCount} instance(s) of [?]) — verify with original:`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => focusAndHighlightQuestionMark()}
+                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                    >
+                      <Search size={12} />
+                      {isBn ? 'পরবর্তী [?] হাইলাইট করুন' : 'Highlight Next [?]'}
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    {isBn
+                      ? 'ডকুমেন্টে যেসব অক্ষর অস্পষ্ট ছিল সেখানে [?] বসানো হয়েছে। নিচের বক্সে গিয়ে মূল ডকুমেন্টের সাথে মিলিয়ে সঠিক চালান নম্বর, তারিখ বা টাকার অংক টাইপ করে দিন।'
+                      : 'Characters unreadable from the source document have been marked as [?]. Jump to each one below and replace it with the authentic value.'}
+                  </p>
+
+                  {linesWithQM.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-bold text-amber-900 uppercase tracking-wider">
+                        {isBn ? '[?] যুক্ত লাইনসমূহ (ক্লিক করে সরাসরি সিলেক্ট করুন):' : 'Lines with [?] (click to select in text box):'}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1 bg-white/90 rounded-xl border border-amber-200">
+                        {linesWithQM.slice(0, 15).map((item, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => focusAndHighlightQuestionMark(item.index)}
+                            className="px-2 py-0.5 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 rounded text-[11px] font-mono flex items-center gap-1 shadow-2xs transition-all cursor-pointer text-left"
+                            title={isBn ? 'এই লাইনে যেতে ক্লিক করুন' : 'Click to jump to line in text box'}
+                          >
+                            <span className="font-bold text-amber-800">L{item.lineNumber}:</span>
+                            <span className="truncate max-w-[180px]">{item.preview}</span>
+                          </button>
+                        ))}
+                        {linesWithQM.length > 15 && (
+                          <span className="text-[10px] text-amber-700 font-bold self-center px-1">
+                            +{linesWithQM.length - 15} {isBn ? 'টি আরও...' : 'more...'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Low-Confidence Words (< 70) from Tesseract Fallback */}
+            {lowConfidenceWords.length > 0 && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-950 text-xs space-y-2">
+                <div className="flex items-center justify-between font-bold text-rose-900">
+                  <span className="flex items-center gap-1.5">
+                    <AlertCircle size={14} className="text-rose-600" />
+                    {isBn
+                      ? `Tesseract কম কনফিডেন্স শব্দ (${lowConfidenceWords.length}টি) — যাচাইয়ের পরামর্শ:`
+                      : `Tesseract low confidence words (${lowConfidenceWords.length}) — review recommended:`}
+                  </span>
+                  <button
+                    onClick={() => setLowConfidenceWords([])}
+                    className="text-[10px] text-rose-600 hover:text-rose-800 font-bold underline cursor-pointer"
+                  >
+                    {isBn ? 'আড়াল করুন' : 'Dismiss'}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1 bg-white/80 rounded-lg border border-rose-100">
+                  {lowConfidenceWords.slice(0, 30).map((w, idx) => (
+                    <span
+                      key={idx}
+                      className="px-2 py-0.5 bg-rose-100 text-rose-800 border border-rose-200 rounded text-[11px] font-mono flex items-center gap-1 shadow-2xs"
+                      title={`Confidence: ${w.confidence}%${w.page ? ` (Page ${w.page})` : ''}`}
+                    >
+                      <span>{w.text}</span>
+                      <span className="text-[9px] text-rose-500 font-sans font-bold">
+                        {w.confidence}%
+                      </span>
+                    </span>
+                  ))}
+                  {lowConfidenceWords.length > 30 && (
+                    <span className="text-[10px] text-rose-500 self-center font-bold px-1">
+                      +{lowConfidenceWords.length - 30} {isBn ? 'টি আরও...' : 'more...'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Markup Textarea */}
             <div className="space-y-2">
               <label className="text-xs font-black text-zinc-700 uppercase tracking-wider flex items-center justify-between">
-                <span>{isBn ? 'মার্কআপ / টেবিল টেক্সট:' : 'Raw Markup Text / Markdown Table:'}</span>
+                <span className="flex items-center gap-2">
+                  <span>{isBn ? 'মার্কআপ / টেবিল টেক্সট (এডিটযোগ্য):' : 'Raw Markup Text / Markdown Table (Editable):'}</span>
+                  {markupText.includes('[?]') && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-200 text-amber-900 border border-amber-300 animate-pulse">
+                      ⚠️ [?] অস্পষ্ট অক্ষর বিদ্যমান
+                    </span>
+                  )}
+                </span>
                 <span className="text-[10px] font-mono text-zinc-400 font-normal">
                   {markupText.length} chars • {markupText.split('\n').length} lines
                 </span>
               </label>
               <textarea
+                ref={textareaRef}
                 value={markupText}
                 onChange={(e) => {
                   setMarkupText(e.target.value);
@@ -679,7 +1412,11 @@ export default function NBRMarkupScriptHub({
                 }}
                 placeholder={isBn ? 'মার্কআপ টেক্সট বা মার্কডাউন টেবিল এখানে পেস্ট করুন...' : 'Paste markdown table or OCR markup text here...\n\nExample:\n| SL | Month | Depositing Authority | Payment Doc Type | Challan Ref No | Challan Date | Deposited Amount | Claimed TDS |\n|---|---|---|---|---|---|---|---|\n| 1 | Jul | Eastern Bank PLC | Challan | 2526-00043326111 | 14-08-2025 | 27650502.89 | 4131.97 |'}
                 rows={16}
-                className="w-full p-4 rounded-2xl border border-zinc-200 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-zinc-50/70 leading-relaxed selection:bg-emerald-200"
+                className={`w-full p-4 rounded-2xl border text-xs font-mono focus:outline-none focus:ring-2 leading-relaxed selection:bg-emerald-200 transition-all ${
+                  markupText.includes('[?]')
+                    ? 'border-amber-400 focus:ring-amber-500 bg-amber-50/15'
+                    : 'border-zinc-200 focus:ring-emerald-500 bg-zinc-50/70'
+                }`}
               />
             </div>
 

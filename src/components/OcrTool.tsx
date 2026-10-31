@@ -235,9 +235,20 @@ export default function OcrTool({ language = 'bn' }: OcrToolProps) {
           body: formData,
         });
 
-        const data = await response.json();
+        let data: any = null;
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          data = await response.json().catch(() => null);
+        } else {
+          const rawText = await response.text().catch(() => '');
+          try {
+            data = JSON.parse(rawText);
+          } catch {
+            data = null;
+          }
+        }
 
-        if (response.ok && data.success && data.text) {
+        if (response.ok && data?.success && data?.text) {
           setProgress(100);
           setStatusMessage(language === 'bn' ? 'এআই ওসিআর সফলভাবে সম্পন্ন!' : 'AI OCR completed successfully!');
           setExtractedText(data.text);

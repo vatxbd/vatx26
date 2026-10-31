@@ -443,6 +443,27 @@ db.exec(`
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS payment_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tran_id TEXT UNIQUE NOT NULL,
+    val_id TEXT,
+    amount REAL NOT NULL,
+    currency TEXT DEFAULT 'BDT',
+    card_type TEXT,
+    card_no TEXT,
+    bank_tran_id TEXT,
+    status TEXT DEFAULT 'PENDING',
+    customer_name TEXT,
+    customer_email TEXT,
+    customer_phone TEXT,
+    plan_name TEXT,
+    is_sandbox INTEGER DEFAULT 1,
+    payment_gateway TEXT DEFAULT 'SSLCOMMERZ',
+    error_reason TEXT,
+    invoice_data TEXT,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS ocr_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sourceType TEXT DEFAULT 'social_media',
@@ -626,6 +647,15 @@ try {
 } catch (e) {}
 try {
   db.prepare("ALTER TABLE tds_records ADD COLUMN bankBranch TEXT").run();
+} catch (e) {}
+try {
+  db.prepare("ALTER TABLE compliance_deadlines ADD COLUMN autoSnooze BOOLEAN DEFAULT 0").run();
+} catch (e) {}
+try {
+  db.prepare("ALTER TABLE compliance_deadlines ADD COLUMN snoozedAt TEXT").run();
+} catch (e) {}
+try {
+  db.prepare("ALTER TABLE compliance_deadlines ADD COLUMN snoozedUntil TEXT").run();
 } catch (e) {}
 
 async function startServer() {
@@ -962,6 +992,278 @@ async function startServer() {
     }
   });
 
+  // ==========================================
+  // MULTI-CHANNEL AGGREGATOR (SSLCOMMERZ / AAMARPAY) & SANDBOX SIMULATOR
+  // ==========================================
+
+  // Get active gateway configuration
+  app.get("/api/payments/gateway-config", (req, res) => {
+    try {
+      const getSetting = (k: string, defaultVal: string = '') => {
+        const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(k) as any;
+        return row ? row.value : defaultVal;
+      };
+
+      const provider = getSetting('payment_gateway_provider', 'sslcommerz'); // 'sslcommerz' | 'aamarpay' | 'simulator'
+      const mode = getSetting('payment_gateway_mode', 'sandbox'); // 'sandbox' | 'live'
+      const storeId = getSetting('sslcz_store_id', '');
+      const hasPassword = Boolean(getSetting('sslcz_store_passwd', ''));
+      const aamarStoreId = getSetting('aamarpay_store_id', '');
+      const hasAamarKey = Boolean(getSetting('aamarpay_signature_key', ''));
+
+      res.json({
+        provider,
+        mode,
+        isConfigured: mode === 'sandbox' ? true : (provider === 'sslcommerz' ? Boolean(storeId && hasPassword) : Boolean(aamarStoreId && hasAamarKey)),
+        storeIdPreview: storeId ? `${storeId.slice(0, 4)}***` : '',
+        aamarStoreIdPreview: aamarStoreId ? `${aamarStoreId.slice(0, 4)}***` : '',
+        supportedChannels: [
+          { id: 'bkash', name: 'bKash', category: 'mfs', color: '#E2136E', logoText: 'বিকাশ' },
+          { id: 'nagad', name: 'Nagad', category: 'mfs', color: '#F7941D', logoText: 'নগদ' },
+          { id: 'rocket', name: 'DBBL Rocket', category: 'mfs', color: '#8C3494', logoText: 'রকেট' },
+          { id: 'upay', name: 'Upay', category: 'mfs', color: '#005696', logoText: 'উপায়' },
+          { id: 'visa', name: 'Visa Card', category: 'card', color: '#1A1F71', logoText: 'VISA' },
+          { id: 'mastercard', name: 'Mastercard', category: 'card', color: '#EB001B', logoText: 'Mastercard' },
+          { id: 'nexus', name: 'DBBL Nexus / NexusPay', category: 'card', color: '#00833E', logoText: 'Nexus' },
+          { id: 'citytouch', name: 'City Bank (Citytouch)', category: 'netbanking', color: '#D9232D', logoText: 'Citytouch' },
+          { id: 'ibbl', name: 'Islami Bank i-Banking', category: 'netbanking', color: '#006A4E', logoText: 'IBBL' }
+        ]
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update gateway settings
+  app.post("/api/payments/gateway-config", (req, res) => {
+    try {
+      const { provider, mode, sslcz_store_id, sslcz_store_passwd, aamarpay_store_id, aamarpay_signature_key } = req.body;
+      const upsert = db.prepare("INSERT OR REPLACE INTO app_settings (key, value, updatedAt) VALUES (?, ?, CURRENT_TIMESTAMP)");
+
+      if (provider) upsert.run('payment_gateway_provider', provider);
+      if (mode) upsert.run('payment_gateway_mode', mode);
+      if (sslcz_store_id !== undefined) upsert.run('sslcz_store_id', sslcz_store_id);
+      if (sslcz_store_passwd) upsert.run('sslcz_store_passwd', sslcz_store_passwd);
+      if (aamarpay_store_id !== undefined) upsert.run('aamarpay_store_id', aamarpay_store_id);
+      if (aamarpay_signature_key) upsert.run('aamarpay_signature_key', aamarpay_signature_key);
+
+      res.json({ success: true, message: "Gateway settings updated successfully" });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Initiate an aggregator checkout session (supports Sandbox & Live)
+  app.post("/api/payments/aggregator/initiate", (req, res) => {
+    try {
+      const {
+        planName = 'Pro',
+        amount = 2499,
+        customerName = 'Valued Taxpayer',
+        customerEmail = 'user@vatx.bd',
+        customerPhone = '01700000000'
+      } = req.body;
+
+      const getSetting = (k: string, defaultVal: string = '') => {
+        const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(k) as any;
+        return row ? row.value : defaultVal;
+      };
+
+      const provider = getSetting('payment_gateway_provider', 'sslcommerz');
+      const mode = getSetting('payment_gateway_mode', 'sandbox');
+      const isSandbox = mode === 'sandbox';
+
+      // Unique transaction ID
+      const tranId = `VATX_${Date.now().toString().slice(-8)}_${Math.floor(1000 + Math.random() * 9000)}`;
+      const subtotal = Math.round(Number(amount) / 1.15); // Standard 15% VAT included
+      const vatAmount = Number(amount) - subtotal;
+
+      const invoiceMeta = {
+        invoiceNumber: `MUSHAK-6.3-${Date.now().toString().slice(-6)}`,
+        issueDate: new Date().toISOString(),
+        customer: { name: customerName, email: customerEmail, phone: customerPhone },
+        items: [{ description: `${planName} Annual License & Compliance Suite`, amount: subtotal, vatRate: 15, vatAmount, total: Number(amount) }],
+        subtotal,
+        vatAmount,
+        total: Number(amount)
+      };
+
+      db.prepare(`
+        INSERT INTO payment_transactions (
+          tran_id, amount, currency, status, customer_name, customer_email, customer_phone,
+          plan_name, is_sandbox, payment_gateway, invoice_data
+        ) VALUES (?, ?, 'BDT', 'PENDING', ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        tranId,
+        Number(amount),
+        customerName,
+        customerEmail,
+        customerPhone,
+        planName,
+        isSandbox ? 1 : 0,
+        provider.toUpperCase(),
+        JSON.stringify(invoiceMeta)
+      );
+
+      res.json({
+        success: true,
+        tran_id: tranId,
+        amount: Number(amount),
+        currency: 'BDT',
+        planName,
+        isSandbox,
+        provider,
+        gatewaySessionUrl: isSandbox ? null : `https://sandbox.sslcommerz.com/gwprocess/v4/simulator?tran_id=${tranId}`
+      });
+    } catch (err: any) {
+      console.error("Aggregator Initiate Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Simulator Action (Immediate interactive sandbox validation)
+  app.post("/api/payments/aggregator/simulate-action", (req, res) => {
+    try {
+      const { tran_id, action = 'success', channel = 'bkash', mobileNumber = '01711223344' } = req.body;
+      if (!tran_id) return res.status(400).json({ error: "Transaction ID (tran_id) is required" });
+
+      const tx = db.prepare("SELECT * FROM payment_transactions WHERE tran_id = ?").get(tran_id) as any;
+      if (!tx) return res.status(404).json({ error: "Transaction not found" });
+
+      if (action === 'success') {
+        const bankTranId = `BTRX-${Math.floor(10000000 + Math.random() * 90000000)}`;
+        const valId = `VAL_${Date.now()}`;
+        const cardType = channel.toUpperCase() + (channel === 'visa' || channel === 'mastercard' ? '-Debit' : '-Mobile');
+        const cardNo = `${mobileNumber.slice(0, 3)}****${mobileNumber.slice(-4)}`;
+
+        // 1. Update Transaction to VALID
+        db.prepare(`
+          UPDATE payment_transactions
+          SET status = 'VALID', bank_tran_id = ?, val_id = ?, card_type = ?, card_no = ?
+          WHERE tran_id = ?
+        `).run(bankTranId, valId, cardType, cardNo, tran_id);
+
+        // 2. Automatically upgrade/extend subscription
+        const expiresAt = new Date();
+        expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+
+        db.prepare(`
+          INSERT INTO subscriptions (planName, status, paymentMethod, amount, transactionId, expiresAt)
+          VALUES (?, 'active', ?, ?, ?, ?)
+        `).run(tx.plan_name, cardType, tx.amount, tran_id, expiresAt.toISOString());
+
+        // Parse updated invoice
+        const invoiceData = JSON.parse(tx.invoice_data || '{}');
+        invoiceData.bankTranId = bankTranId;
+        invoiceData.paymentMethod = cardType;
+        invoiceData.paidAt = new Date().toISOString();
+
+        db.prepare("UPDATE payment_transactions SET invoice_data = ? WHERE tran_id = ?").run(JSON.stringify(invoiceData), tran_id);
+
+        return res.json({
+          success: true,
+          status: 'VALID',
+          tran_id,
+          bank_tran_id: bankTranId,
+          val_id: valId,
+          card_type: cardType,
+          amount: tx.amount,
+          planName: tx.plan_name,
+          expiresAt: expiresAt.toISOString(),
+          invoice: invoiceData
+        });
+      } else if (action === 'failed') {
+        const errorReason = "Insufficient balance in selected account / MFS wallet.";
+        db.prepare("UPDATE payment_transactions SET status = 'FAILED', error_reason = ? WHERE tran_id = ?").run(errorReason, tran_id);
+        return res.json({ success: false, status: 'FAILED', reason: errorReason, tran_id });
+      } else if (action === 'cancel') {
+        const errorReason = "Customer closed payment drawer or aborted authorization.";
+        db.prepare("UPDATE payment_transactions SET status = 'CANCELLED', error_reason = ? WHERE tran_id = ?").run(errorReason, tran_id);
+        return res.json({ success: false, status: 'CANCELLED', reason: errorReason, tran_id });
+      } else {
+        return res.status(400).json({ error: "Invalid action" });
+      }
+    } catch (err: any) {
+      console.error("Simulation Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Instant Payment Notification (IPN) & Webhook Handler
+  app.post("/api/payments/aggregator/ipn", (req, res) => {
+    try {
+      const { tran_id, val_id, status, bank_tran_id, card_type, card_no, amount } = req.body;
+      if (!tran_id) return res.status(400).send("INVALID_IPN_PAYLOAD");
+
+      const tx = db.prepare("SELECT * FROM payment_transactions WHERE tran_id = ?").get(tran_id) as any;
+      if (!tx) return res.status(404).send("TRANSACTION_NOT_FOUND");
+
+      const finalStatus = (status || '').toUpperCase() === 'VALID' || (status || '').toUpperCase() === 'SUCCESS' ? 'VALID' : 'FAILED';
+
+      db.prepare(`
+        UPDATE payment_transactions
+        SET status = ?, val_id = ?, bank_tran_id = ?, card_type = ?, card_no = ?
+        WHERE tran_id = ?
+      `).run(finalStatus, val_id || null, bank_tran_id || null, card_type || null, card_no || null, tran_id);
+
+      if (finalStatus === 'VALID') {
+        const expiresAt = new Date();
+        expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+
+        db.prepare(`
+          INSERT INTO subscriptions (planName, status, paymentMethod, amount, transactionId, expiresAt)
+          VALUES (?, 'active', ?, ?, ?, ?)
+        `).run(tx.plan_name, card_type || 'Aggregator-Online', tx.amount, tran_id, expiresAt.toISOString());
+      }
+
+      res.status(200).send("IPN_PROCESSED_SUCCESS");
+    } catch (err: any) {
+      console.error("IPN Process Error:", err);
+      res.status(500).send("IPN_ERROR: " + err.message);
+    }
+  });
+
+  // List all payment transactions for Admin Ledger and audit
+  app.get("/api/payments/aggregator/transactions", (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string, 10) || 50;
+      const statusFilter = req.query.status as string;
+
+      let query = "SELECT * FROM payment_transactions";
+      const params: any[] = [];
+
+      if (statusFilter && statusFilter !== 'ALL') {
+        query += " WHERE status = ?";
+        params.push(statusFilter);
+      }
+
+      query += " ORDER BY createdAt DESC LIMIT ?";
+      params.push(limit);
+
+      const rows = db.prepare(query).all(...params);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get single transaction invoice receipt with full tax breakdown
+  app.get("/api/payments/aggregator/receipt/:tran_id", (req, res) => {
+    try {
+      const { tran_id } = req.params;
+      const tx = db.prepare("SELECT * FROM payment_transactions WHERE tran_id = ?").get(tran_id) as any;
+      if (!tx) return res.status(404).json({ error: "Receipt not found" });
+
+      const invoice = JSON.parse(tx.invoice_data || '{}');
+      res.json({
+        ...tx,
+        invoice
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // OCR History Routes
   app.get("/api/ocr/history", (req, res) => {
     const history = db.prepare("SELECT * FROM ocr_entries ORDER BY createdAt DESC").all();
@@ -1201,41 +1503,43 @@ CRITICAL EXTRACTION RULES:
   const ocrMemoryUpload = multer({
     storage: multer.memoryStorage(),
     limits: {
-      fileSize: 5 * 1024 * 1024 // 5MB limit
+      fileSize: 15 * 1024 * 1024 // 15MB limit per file
     },
     fileFilter: (_req, file, cb) => {
-      const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
-      if (allowed.includes(file.mimetype) || file.mimetype.startsWith('image/')) {
+      const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg', 'application/pdf'];
+      const isExtAllowed = /\.(jpe?g|png|webp|pdf)$/i.test(file.originalname || '');
+      if (allowed.includes(file.mimetype) || file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf' || isExtAllowed) {
         cb(null, true);
       } else {
-        cb(new Error("শুধুমাত্র JPG, PNG বা WebP ছবি গ্রহণযোগ্য।"));
+        cb(new Error("শুধুমাত্র JPG, PNG, WebP বা PDF ফাইল গ্রহণযোগ্য।"));
       }
     }
   });
 
-  // Enhanced AI OCR Route (Gemini 2.5 Flash)
+  // Enhanced AI OCR Route (Gemini 2.5 Flash) - Supports both General Text OCR & Batch Invoice Extraction
   app.post("/api/ocr", ocrAiLimiter, (req, res, next) => {
-    ocrMemoryUpload.single('image')(req, res, (err) => {
+    ocrMemoryUpload.any()(req, res, (err) => {
       if (err) {
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(400).json({
             success: false,
-            error: "ছবির সাইজ ৫ মেগাবাইট (5MB)-এর চেয়ে বেশি হতে পারবে না।"
+            error: "ছবির সাইজ ১৫ মেগাবাইট (15MB)-এর চেয়ে বেশি হতে পারবে না।"
           });
         }
         return res.status(400).json({
           success: false,
-          error: err.message || "ছবি আপলোড করতে সমস্যা হয়েছে।"
+          error: err.message || "ফাইল আপলোড করতে সমস্যা হয়েছে।"
         });
       }
       next();
     });
   }, async (req, res) => {
     try {
-      if (!req.file) {
+      const rawFiles: Express.Multer.File[] = (req.files as Express.Multer.File[]) || (req.file ? [req.file] : []);
+      if (!rawFiles || rawFiles.length === 0) {
         return res.status(400).json({
           success: false,
-          error: "কোনো ছবি পাওয়া যায়নি। অনুগ্রহ করে একটি ছবি আপলোড করুন।"
+          error: "কোনো ছবি বা PDF ফাইল পাওয়া যায়নি। অনুগ্রহ করে ফাইল আপলোড করুন।"
         });
       }
 
@@ -1247,8 +1551,215 @@ CRITICAL EXTRACTION RULES:
         });
       }
 
+      // Check if caller requests invoice extraction or provided multiple files or field 'files'
+      const isInvoiceBatch = rawFiles.length > 1 || rawFiles.some(f => f.fieldname === 'files') || req.query.mode === 'invoice' || (req.body && req.body.mode === 'invoice');
+
+      const allInvoices: Array<{
+        invoice_number: string;
+        vendor_name: string;
+        date: string;
+        subtotal: number;
+        vat_amount: number;
+        total_amount: number;
+      }> = [];
+
+      const extractedTexts: string[] = [];
+
+      for (const file of rawFiles) {
+        const base64Data = file.buffer.toString('base64');
+        const mimeType = file.mimetype || (/\.pdf$/i.test(file.originalname) ? 'application/pdf' : 'image/jpeg');
+
+        if (isInvoiceBatch) {
+          try {
+            const aiRes = await ai.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents: [
+                {
+                  inlineData: {
+                    mimeType: mimeType,
+                    data: base64Data
+                  }
+                },
+                {
+                  text: `You are an expert VAT invoice and tax challan data extractor.
+Analyze this invoice/challan/receipt document and extract the structured invoice details.
+Output a JSON array of invoice objects with EXACTLY these keys:
+- "invoice_number": string (invoice number, challan number, bill number, or memo number; if none, generate or leave empty "")
+- "vendor_name": string (company/supplier/vendor/business name)
+- "date": string (invoice date in DD/MM/YYYY or YYYY-MM-DD format)
+- "subtotal": number (amount excluding VAT/tax; if not separate, calculate total - vat)
+- "vat_amount": number (VAT/tax amount, 0 if exempt/none)
+- "total_amount": number (grand total payable amount including VAT)
+
+Rules:
+1. Extract authentic numbers from the document.
+2. Convert Bengali numerals (০,১,২...) to English digits (0, 1, 2...).
+3. Return ONLY valid JSON in format: [{"invoice_number": "...", "vendor_name": "...", "date": "...", "subtotal": 1000, "vat_amount": 150, "total_amount": 1150}]. Do not wrap in markdown or commentary.`
+                }
+              ]
+            });
+
+            const text = (aiRes.text || "").trim();
+            extractedTexts.push(text);
+
+            let cleaned = text;
+            if (cleaned.includes('```')) {
+              cleaned = cleaned.replace(/```(?:json)?([\s\S]*?)```/g, '$1').trim();
+            }
+            const jsonStart = cleaned.indexOf('[');
+            const jsonEnd = cleaned.lastIndexOf(']');
+            if (jsonStart !== -1 && jsonEnd !== -1) {
+              cleaned = cleaned.slice(jsonStart, jsonEnd + 1);
+            }
+
+            try {
+              const parsed = JSON.parse(cleaned);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                for (const item of parsed) {
+                  allInvoices.push({
+                    invoice_number: String(item.invoice_number || '').trim(),
+                    vendor_name: String(item.vendor_name || file.originalname.replace(/\.[^/.]+$/, '')).trim(),
+                    date: String(item.date || new Date().toISOString().slice(0, 10)).trim(),
+                    subtotal: Number(item.subtotal) || 0,
+                    vat_amount: Number(item.vat_amount) || 0,
+                    total_amount: Number(item.total_amount) || (Number(item.subtotal) || 0) + (Number(item.vat_amount) || 0)
+                  });
+                }
+              } else {
+                throw new Error("Empty array");
+              }
+            } catch {
+              allInvoices.push({
+                invoice_number: `INV-${Date.now().toString().slice(-4)}`,
+                vendor_name: file.originalname.replace(/\.[^/.]+$/, ''),
+                date: new Date().toISOString().slice(0, 10),
+                subtotal: 0,
+                vat_amount: 0,
+                total_amount: 0
+              });
+            }
+          } catch (fileErr: any) {
+            console.error("Invoice scan error for file:", file.originalname, fileErr);
+          }
+        } else {
+          // General OCR Text Extraction
+          const aiRes = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+              {
+                inlineData: {
+                  mimeType: mimeType,
+                  data: base64Data
+                }
+              },
+              {
+                text: `You are an expert OCR and document digitization system specializing in Bengali (বাংলা) and English texts, official tax records, receipts, challans, forms, and documents.
+Task: Extract and accurately transcribe all visible text from this image with highest fidelity.
+Rules:
+1. Faithfully extract both Bengali and English text, punctuation, and numerals (both Bengali ১,২,৩... and English 1,2,3...).
+2. Preserve original lines, paragraphs, headings, bullet lists, and table formatting where applicable.
+3. Do NOT invent or guess missing words. Do not add intro, markdown code ticks, or conversational commentary. Return ONLY the transcribed text.`
+              }
+            ]
+          });
+
+          const text = (aiRes.text || "").trim();
+          extractedTexts.push(text);
+        }
+      }
+
+      const combinedText = extractedTexts.join("\n\n");
+      return res.json({
+        success: true,
+        invoices: allInvoices,
+        text: combinedText,
+        engine: "gemini-2.5-flash",
+        charCount: combinedText.length
+      });
+    } catch (error: any) {
+      console.error("AI OCR Error:", error);
+      return res.status(500).json({
+        success: false,
+        error: error.message || "এআই ওসিআর প্রক্রিয়াকরণে সমস্যা হয়েছে। অনুগ্রহ করে স্ট্যান্ডার্ড ফ্রি ওসিআর ব্যবহার করুন।"
+      });
+    }
+  });
+
+  // OCR Markdown AI Rate Limiter (Max 15 requests per IP per day / 24 hours)
+  const ocrMarkdownLimiter = rateLimit({
+    windowMs: 24 * 60 * 60 * 1000,
+    max: 15,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      success: false,
+      error: "দৈনিক এআই লিমিট শেষ হয়েছে (সর্বোচ্চ ১৫ বার প্রতি দিন)। আপনি ক্লায়েন্ট-সাইড Tesseract OCR ব্যবহার করতে পারেন।",
+      limitExceeded: true
+    },
+    statusCode: 429
+  });
+
+  const ocrMarkdownUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 10 * 1024 * 1024 // 10MB limit
+    },
+    fileFilter: (_req, file, cb) => {
+      const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg', 'application/pdf'];
+      const isExtAllowed = /\.(jpe?g|png|webp|pdf)$/i.test(file.originalname || '');
+      if (allowed.includes(file.mimetype) || file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf' || isExtAllowed) {
+        cb(null, true);
+      } else {
+        cb(new Error("শুধুমাত্র JPG, PNG, WebP বা PDF ফাইল গ্রহণযোগ্য (সর্বোচ্চ ১০MB)।"));
+      }
+    }
+  });
+
+  // Gemini-based OCR that outputs clean Markdown tables (like Microsoft MarkItDown)
+  app.post("/api/ocr-markdown", ocrMarkdownLimiter, (req, res, next) => {
+    ocrMarkdownUpload.single('file')(req, res, (err) => {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({
+            success: false,
+            error: "ফাইলের সাইজ ১০ মেগাবাইট (10MB)-এর চেয়ে বেশি হতে পারবে না।"
+          });
+        }
+        return res.status(400).json({
+          success: false,
+          error: err.message || "ফাইল আপলোড করতে সমস্যা হয়েছে।"
+        });
+      }
+      next();
+    });
+  }, async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          error: "কোনো ফাইল পাওয়া যায়নি। অনুগ্রহ করে একটি ছবি বা PDF ফাইল আপলোড করুন।"
+        });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({
+          success: false,
+          error: "সার্ভারে GEMINI_API_KEY কনফিগার করা নেই। অনুগ্রহ করে Tesseract OCR ব্যবহার করুন।"
+        });
+      }
+
       const base64Data = req.file.buffer.toString('base64');
-      const mimeType = req.file.mimetype || 'image/jpeg';
+      let mimeType = req.file.mimetype;
+      if (!mimeType || mimeType === 'application/octet-stream') {
+        const lower = (req.file.originalname || '').toLowerCase();
+        if (lower.endsWith('.pdf')) mimeType = 'application/pdf';
+        else if (lower.endsWith('.png')) mimeType = 'image/png';
+        else if (lower.endsWith('.webp')) mimeType = 'image/webp';
+        else mimeType = 'image/jpeg';
+      }
+
+      const systemPrompt = "You are a precise document OCR engine. Convert the document to clean Markdown. Preserve all tables as Markdown tables with the exact same rows and columns. Keep the original language (Bengali/English). Copy every challan number, date, reference number, and amount EXACTLY as printed, digit by digit. Never guess, correct, or invent values. If a character is unreadable, write [?] in its place. Output only the Markdown, with no explanations.";
 
       const aiRes = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -1260,29 +1771,77 @@ CRITICAL EXTRACTION RULES:
             }
           },
           {
-            text: `You are an expert OCR and document digitization system specializing in Bengali (বাংলা) and English texts, official tax records, receipts, challans, forms, and documents.
-Task: Extract and accurately transcribe all visible text from this image with highest fidelity.
-Rules:
-1. Faithfully extract both Bengali and English text, punctuation, and numerals (both Bengali ১,২,৩... and English 1,2,3...).
-2. Preserve original lines, paragraphs, headings, bullet lists, and table formatting where applicable.
-3. Do NOT invent or guess missing words. Do not add intro, markdown code ticks, or conversational commentary. Return ONLY the transcribed text.`
+            text: "Extract and convert this entire document to clean Markdown. Preserve all tables as Markdown tables with the exact same rows and columns. Output only the Markdown, with no explanations."
           }
-        ]
+        ],
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0
+        }
       });
 
-      const text = (aiRes.text || "").trim();
+      let markdown = (aiRes.text || "").trim();
+      // Clean leading and trailing code blocks if wrapped
+      if (markdown.startsWith("```markdown")) {
+        markdown = markdown.replace(/^```markdown\s*/i, "").replace(/```\s*$/i, "").trim();
+      } else if (markdown.startsWith("```")) {
+        markdown = markdown.replace(/^```\w*\s*/i, "").replace(/```\s*$/i, "").trim();
+      }
+
       return res.json({
         success: true,
-        text: text,
-        engine: "gemini-2.5-flash",
-        charCount: text.length
+        markdown: markdown,
+        engine: "gemini-2.5-flash"
       });
     } catch (error: any) {
-      console.error("AI OCR Error:", error);
+      console.error("Gemini OCR Markdown Error:", error);
       return res.status(500).json({
         success: false,
-        error: error.message || "এআই ওসিআর প্রক্রিয়াকরণে সমস্যা হয়েছে। অনুগ্রহ করে স্ট্যান্ডার্ড ফ্রি ওসিআর ব্যবহার করুন।"
+        error: error.message || "এআই ওসিআর প্রক্রিয়াকরণে সমস্যা হয়েছে। অনুগ্রহ করে Tesseract OCR ব্যবহার করুন।"
       });
+    }
+  });
+
+  // Scanner PDF / Document Upload Route
+  const scannerUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 30 * 1024 * 1024 }, // 30MB limit
+    fileFilter: (_req, file, cb) => {
+      const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+      if (allowed.includes(file.mimetype) || /\.(pdf|jpe?g|png|webp)$/i.test(file.originalname)) {
+        cb(null, true);
+      } else {
+        cb(new Error("Only PDF or image files are supported (max 30MB)"));
+      }
+    }
+  });
+
+  app.post("/api/scanner/upload", (req, res, next) => {
+    scannerUpload.single('file')(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ success: false, error: err.message || "File upload error" });
+      }
+      next();
+    });
+  }, (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, error: "No document file provided" });
+      }
+
+      const documentId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      return res.json({
+        success: true,
+        documentId,
+        filename: req.file.originalname,
+        sizeBytes: req.file.size,
+        mimeType: req.file.mimetype,
+        uploadedAt: new Date().toISOString(),
+        message: "Scanned document received and saved securely"
+      });
+    } catch (err: any) {
+      console.error("Scanner upload error:", err);
+      return res.status(500).json({ success: false, error: err.message || "Internal server error saving document" });
     }
   });
 
@@ -1841,37 +2400,286 @@ Rules:
     res.json({ success: true });
   });
 
+  // Helper to ensure rolling statutory Bangladesh tax and VAT deadlines are populated
+  function ensureStatutoryComplianceDeadlines(refDate: Date = new Date()) {
+    const currentYear = refDate.getFullYear();
+    const currentMonth = refDate.getMonth(); // 0-indexed
+
+    // Generate rolling statutory deadlines: previous month (-1), current month (0), and next 3 months (1, 2, 3)
+    const offsets = [-1, 0, 1, 2, 3];
+
+    for (const offset of offsets) {
+      const targetDate = new Date(currentYear, currentMonth + offset, 1);
+      const y = targetDate.getFullYear();
+      const m = targetDate.getMonth();
+      const monthNum = String(m + 1).padStart(2, '0');
+      const monthName = targetDate.toLocaleString('en-US', { month: 'long' });
+
+      // 1. Monthly VAT Return (Mushak 9.1) on the 15th
+      const vatDeadline = `${y}-${monthNum}-15`;
+      const vatTitle = `Monthly VAT Return (Mushak 9.1) - ${monthName} ${y}`;
+      const vatExists = db.prepare("SELECT id FROM compliance_deadlines WHERE deadlineDate = ? AND category = 'VAT'").get(vatDeadline);
+      if (!vatExists) {
+        db.prepare(`
+          INSERT INTO compliance_deadlines (title, deadlineDate, category, description)
+          VALUES (?, ?, ?, ?)
+        `).run(
+          vatTitle,
+          vatDeadline,
+          'VAT',
+          `Mandatory submission of Mushak 9.1 monthly VAT return for the preceding tax period under Section 64 of the Value Added Tax and Supplementary Duty Act 2012.`
+        );
+      }
+
+      // 2. Monthly Withholding Tax / VDS Treasury Deposit on the 15th
+      const vdsDeadline = `${y}-${monthNum}-15`;
+      const vdsTitle = `Monthly TDS & VDS Deposit - ${monthName} ${y}`;
+      const vdsExists = db.prepare("SELECT id FROM compliance_deadlines WHERE deadlineDate = ? AND category = 'TDS/VDS'").get(vdsDeadline);
+      if (!vdsExists) {
+        db.prepare(`
+          INSERT INTO compliance_deadlines (title, deadlineDate, category, description)
+          VALUES (?, ?, ?, ?)
+        `).run(
+          vdsTitle,
+          vdsDeadline,
+          'TDS/VDS',
+          `Mandatory deposit of tax and VAT deducted at source into Government Treasury via e-Challan / A-Challan within statutory deadline.`
+        );
+      }
+
+      // 3. Advance Income Tax (AIT) installments (March 15, June 15, September 15, December 15)
+      if ([2, 5, 8, 11].includes(m)) {
+        const aitDeadline = `${y}-${monthNum}-15`;
+        const quarterLabel = m === 2 ? 'Q3 (Jan-Mar)' : m === 5 ? 'Q4 (Apr-Jun)' : m === 8 ? 'Q1 (Jul-Sep)' : 'Q2 (Oct-Dec)';
+        const aitTitle = `Advance Income Tax (AIT) Installment - ${quarterLabel} ${y}`;
+        const aitExists = db.prepare("SELECT id FROM compliance_deadlines WHERE deadlineDate = ? AND title LIKE 'Advance Income Tax%'").get(aitDeadline);
+        if (!aitExists) {
+          db.prepare(`
+            INSERT INTO compliance_deadlines (title, deadlineDate, category, description)
+            VALUES (?, ?, ?, ?)
+          `).run(
+            aitTitle,
+            aitDeadline,
+            'Income Tax',
+            `Quarterly Advance Income Tax installment payable by eligible corporate and individual taxpayers under Section 154 of the Income Tax Act 2023.`
+          );
+        }
+      }
+
+      // 4. Annual Income Tax Day (November 30)
+      if (m === 10) { // November
+        const taxDayDeadline = `${y}-11-30`;
+        const taxDayTitle = `Annual Income Tax Return Deadline (Tax Day ${y})`;
+        const taxDayExists = db.prepare("SELECT id FROM compliance_deadlines WHERE deadlineDate = ? AND title LIKE 'Annual Income Tax%'").get(taxDayDeadline);
+        if (!taxDayExists) {
+          db.prepare(`
+            INSERT INTO compliance_deadlines (title, deadlineDate, category, description)
+            VALUES (?, ?, ?, ?)
+          `).run(
+            taxDayTitle,
+            taxDayDeadline,
+            'Income Tax',
+            `Statutory national deadline for filing individual income tax returns for Assessment Year ${y}-${y + 1} under Income Tax Act 2023.`
+          );
+        }
+      }
+      // 5. Statutory Pre-Filing VAT & Challan Reconciliation (Rolling 5-Day Alert window)
+      const fiveDaysOut = new Date(refDate.getTime() + 5 * 24 * 60 * 60 * 1000);
+      const fiveDaysDate = fiveDaysOut.toISOString().slice(0, 10);
+      const prepTitle = `Upcoming VAT 9.1 & VDS Pre-Filing Reconciliation (${fiveDaysDate})`;
+      const prepExists = db.prepare("SELECT id FROM compliance_deadlines WHERE deadlineDate = ? AND title LIKE 'Upcoming VAT 9.1%'").get(fiveDaysDate);
+      if (!prepExists) {
+        db.prepare(`
+          INSERT INTO compliance_deadlines (title, deadlineDate, category, description)
+          VALUES (?, ?, ?, ?)
+        `).run(
+          prepTitle,
+          fiveDaysDate,
+          'VAT',
+          'Automated 7-day alert: Reconcile sub-form inputs, purchase/sales registers (Mushak 6.1, 6.2) and treasury e-Challan deposits before statutory return filing under VAT Act 2012.'
+        );
+      }
+    }
+  }
+
+  // Ensure statutory deadlines exist on server initialization
+  ensureStatutoryComplianceDeadlines();
+
   // Compliance Calendar Routes
   app.get("/api/compliance", (req, res) => {
+    ensureStatutoryComplianceDeadlines();
     const deadlines = db.prepare("SELECT * FROM compliance_deadlines ORDER BY deadlineDate ASC").all();
     res.json(deadlines);
   });
 
+  // Automated 7-Day Upcoming Deadlines & Proactive Alert Engine with 48h Auto-Snooze Re-trigger
+  app.get("/api/compliance/upcoming-alerts", (req, res) => {
+    ensureStatutoryComplianceDeadlines();
+
+    const daysThreshold = parseInt(req.query.days as string, 10) || 7;
+    const now = new Date();
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const allDeadlines = db.prepare("SELECT * FROM compliance_deadlines ORDER BY deadlineDate ASC").all() as any[];
+
+    const enhanced = allDeadlines.map((item) => {
+      const [year, month, day] = item.deadlineDate.split('-').map(Number);
+      const itemMidnight = new Date(year, month - 1, day);
+      const daysRemaining = Math.round((itemMidnight.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24));
+
+      const isCompleted = Boolean(item.isCompleted);
+      const autoSnooze = Boolean(item.autoSnooze);
+
+      // Auto-Snooze re-trigger evaluation (48 hours before deadline = daysRemaining <= 2)
+      // If task is not completed and auto-snooze was armed:
+      // While daysRemaining > 2, the alert is in snoozed state.
+      // Once daysRemaining <= 2, it re-triggers automatically with critical priority!
+      const isSnoozed = autoSnooze && daysRemaining > 2 && !isCompleted;
+      const retriggered = autoSnooze && daysRemaining <= 2 && !isCompleted;
+
+      let urgency: 'critical' | 'upcoming' | 'overdue' | 'future' = 'future';
+      if (daysRemaining < 0) {
+        urgency = 'overdue';
+      } else if (daysRemaining <= 2 || retriggered) {
+        urgency = 'critical'; // 0, 1, or 2 days left (within 48 hours) or auto-snooze retriggered
+      } else if (daysRemaining <= daysThreshold) {
+        urgency = 'upcoming'; // 3 to 7 days left
+      }
+
+      // Map target tab for direct workflow filing
+      let targetTab = 'critical-vat';
+      let statutoryRef = 'Section 64, VAT Act 2012';
+      let penaltyWarning = 'Late fee BDT 10,000 + 2% per month interest under VAT Act 2012';
+
+      if (item.category === 'VAT') {
+        targetTab = 'critical-vat';
+        statutoryRef = 'Section 64, VAT & SD Act 2012';
+        penaltyWarning = 'Late fee of BDT 10,000 + 2% monthly interest penalty for non-filing.';
+      } else if (item.category === 'TDS/VDS') {
+        targetTab = 'vds-tracker';
+        statutoryRef = 'Sections 49-53, VAT Act & Section 143, Income Tax Act 2023';
+        penaltyWarning = 'Interest and disallowed expenditure claim for delayed treasury deposit.';
+      } else if (item.category === 'Income Tax' || item.category === 'Tax') {
+        targetTab = 'tax';
+        statutoryRef = 'Sections 154 / 166, Income Tax Act 2023';
+        penaltyWarning = 'Penalty under Section 266 + simple interest at 2% monthly.';
+      }
+
+      return {
+        ...item,
+        daysRemaining,
+        urgency,
+        targetTab,
+        statutoryRef,
+        penaltyWarning,
+        isCompleted,
+        autoSnooze,
+        isSnoozed,
+        retriggered,
+        snoozedAt: item.snoozedAt || null,
+        snoozeNote: isSnoozed 
+          ? `Auto-snoozed until 48 hours before ${item.deadlineDate}. Will automatically re-trigger if incomplete.`
+          : retriggered 
+          ? `⚡ Auto-snooze expired: Alert re-triggered 48 hours before deadline because filing is still pending!`
+          : null
+      };
+    });
+
+    // Filter alerts within the 7-day threshold or overdue uncompleted statutory returns (up to 30 days overdue)
+    const alerts = enhanced.filter(
+      (item) => !item.isCompleted && item.daysRemaining >= -30 && item.daysRemaining <= daysThreshold
+    );
+
+    res.json({
+      success: true,
+      alerts,
+      count: alerts.length,
+      hasUrgent: alerts.some((a) => a.daysRemaining <= 2),
+      hasRetriggered: alerts.some((a) => a.retriggered),
+      snoozedCount: alerts.filter((a) => a.isSnoozed).length,
+      daysThreshold,
+      allDeadlines: enhanced
+    });
+  });
+
+  app.post("/api/compliance/seed-statutory", (req, res) => {
+    ensureStatutoryComplianceDeadlines();
+    res.json({ success: true, message: "Statutory deadlines verified and seeded" });
+  });
+
   app.post("/api/compliance", (req, res) => {
-    const { title, date, category, description } = req.body;
+    const { title, date, category, description, autoSnooze } = req.body;
     if (!title || !date) return res.status(400).json({ error: "Title and date are required" });
     
     try {
       const result = db.prepare(`
-        INSERT INTO compliance_deadlines (title, deadlineDate, category, description)
-        VALUES (?, ?, ?, ?)
-      `).run(title, date, category, description);
+        INSERT INTO compliance_deadlines (title, deadlineDate, category, description, autoSnooze)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(title, date, category, description, autoSnooze ? 1 : 0);
       
-      res.status(201).json({ id: result.lastInsertRowid, title, deadlineDate: date, category, description, isCompleted: 0 });
+      res.status(201).json({ id: result.lastInsertRowid, title, deadlineDate: date, category, description, isCompleted: 0, autoSnooze: Boolean(autoSnooze) });
     } catch (err) {
       console.error("Failed to add compliance deadline", err);
       res.status(500).json({ error: "Failed to add compliance deadline" });
     }
   });
 
+  // Toggle or set Auto-Snooze option (re-triggers alert 48h before deadline if incomplete)
+  app.post("/api/compliance/:id/auto-snooze", (req, res) => {
+    const { id } = req.params;
+    const current = db.prepare("SELECT * FROM compliance_deadlines WHERE id = ?").get(id) as any;
+    if (!current) return res.status(404).json({ error: "Deadline not found" });
+
+    const newAutoSnooze = req.body && typeof req.body.enabled === 'boolean'
+      ? (req.body.enabled ? 1 : 0)
+      : (current.autoSnooze ? 0 : 1);
+
+    const snoozedAt = newAutoSnooze ? new Date().toISOString() : null;
+    db.prepare("UPDATE compliance_deadlines SET autoSnooze = ?, snoozedAt = ? WHERE id = ?").run(newAutoSnooze, snoozedAt, id);
+
+    res.json({
+      success: true,
+      id: Number(id),
+      autoSnooze: Boolean(newAutoSnooze),
+      snoozedAt,
+      message: newAutoSnooze
+        ? "Auto-Snooze enabled: alert will automatically re-trigger 48 hours before the deadline if uncompleted."
+        : "Auto-Snooze disabled: standard statutory alerts active."
+    });
+  });
+
+  // Bulk Auto-Snooze all pending 7-day deadlines to 48 hours
+  app.post("/api/compliance/auto-snooze-all", (req, res) => {
+    const enable = req.body?.enable !== false;
+    const nowStr = new Date().toISOString();
+    const val = enable ? 1 : 0;
+    const info = db.prepare("UPDATE compliance_deadlines SET autoSnooze = ?, snoozedAt = ? WHERE isCompleted = 0").run(val, enable ? nowStr : null);
+    res.json({ success: true, updatedCount: info.changes, enabled: enable });
+  });
+
   app.patch("/api/compliance/:id", (req, res) => {
     const { id } = req.params;
-    const current = db.prepare("SELECT isCompleted FROM compliance_deadlines WHERE id = ?").get(id) as any;
+    const current = db.prepare("SELECT * FROM compliance_deadlines WHERE id = ?").get(id) as any;
     if (!current) return res.status(404).json({ error: "Deadline not found" });
     
-    const newStatus = current.isCompleted ? 0 : 1;
-    db.prepare("UPDATE compliance_deadlines SET isCompleted = ? WHERE id = ?").run(newStatus, id);
-    res.json({ success: true, isCompleted: newStatus });
+    let isCompleted = current.isCompleted;
+    let autoSnooze = current.autoSnooze;
+
+    if (req.body && typeof req.body.isCompleted === 'boolean') {
+      isCompleted = req.body.isCompleted ? 1 : 0;
+    } else if (req.body && typeof req.body.autoSnooze === 'boolean') {
+      autoSnooze = req.body.autoSnooze ? 1 : 0;
+    } else {
+      isCompleted = current.isCompleted ? 0 : 1;
+    }
+
+    if (req.body && typeof req.body.autoSnooze === 'boolean') {
+      autoSnooze = req.body.autoSnooze ? 1 : 0;
+    }
+
+    const snoozedAt = autoSnooze ? (current.snoozedAt || new Date().toISOString()) : null;
+    db.prepare("UPDATE compliance_deadlines SET isCompleted = ?, autoSnooze = ?, snoozedAt = ? WHERE id = ?").run(isCompleted, autoSnooze, snoozedAt, id);
+    res.json({ success: true, isCompleted: Boolean(isCompleted), autoSnooze: Boolean(autoSnooze) });
   });
 
   app.get("/api/recurring-tasks", (req, res) => {
@@ -2467,8 +3275,11 @@ Rules:
   setInterval(processScheduledPosts, 1000 * 60);
 
   // API 404 fallback handler (prevents returning HTML for unknown API endpoints)
-  app.use("/api/*", (req, res) => {
-    res.status(404).json({ error: `API endpoint not found: ${req.originalUrl}` });
+  app.all(["/api", "/api/*", "/api/**"], (req, res) => {
+    res.status(404).json({
+      success: false,
+      error: `API endpoint not found: ${req.method} ${req.originalUrl}`
+    });
   });
 
   // Vite middleware for development

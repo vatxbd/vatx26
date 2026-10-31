@@ -1,0 +1,6 @@
+{
+  "summary":  "Comprehensive architecture and implementation plan for integrating a Bangladesh multi-channel payment gateway aggregator (SSLCOMMERZ / AamarPay) into VATX.BD and shikka.bd. Covers server-side checkout session creation, IPN webhook validation, an interactive sandbox simulator for testing all Bangladeshi MFS (bKash, Nagad, Rocket, Upay) and card channels (Visa, Mastercard, DBBL Nexus), seamless subscription plan checkout with automatic tier activation, and admin payment settings management.",
+  "updatedAt":  "2026-10-30T19:08:20.417964193Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

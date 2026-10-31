@@ -214,12 +214,24 @@ export const NBRScriptModal: React.FC<NBRScriptModalProps> = ({
         })
       });
 
-      if (!res.ok) {
-        throw new Error(`Conversion failed with status ${res.status}`);
+      let result: any = null;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        result = await res.json().catch(() => null);
+      } else {
+        const rawText = await res.text().catch(() => '');
+        try {
+          result = JSON.parse(rawText);
+        } catch {
+          result = null;
+        }
       }
 
-      const result = await res.json();
-      const markdown = result.markdown || '';
+      if (!res.ok) {
+        throw new Error(result?.error || `Conversion failed with status ${res.status}`);
+      }
+
+      const markdown = result?.markdown || '';
       setRawText(markdown);
 
       // Parse markdown into authentic NBR Document Data & Challans
