@@ -116,6 +116,7 @@ import OdooAccounting from './components/OdooAccounting';
 import DropboxManager from './components/DropboxManager';
 import OdooIntegration from './components/OdooIntegration';
 import ERPNextIntegration from './components/ERPNextIntegration';
+import UnifiedERPHub from './components/UnifiedERPHub';
 import VatAgentPortal from './components/VatAgentPortal';
 import NBRMarkupScriptHub from './components/NBRMarkupScriptHub';
 import { NBRScriptModal } from './components/NBRScriptModal';
@@ -219,8 +220,9 @@ import AllInOneInvoiceOCR from './components/AllInOneInvoiceOCR';
 import DocumentScanner from './components/DocumentScanner';
 import MVPFeaturesHub from './components/MVPFeaturesHub';
 import CommandPalette from './components/CommandPalette';
+import CtgUnifiedTaxCalculator from './components/CtgUnifiedTaxCalculator';
 
-type Tab = 'dashboard' | 'nbr-script-markup' | 'ocr' | 'scanner' | 'vat' | 'tax' | 'tariff' | 'manifest' | 'reports' | 'blog' | 'tools' | 'ai' | 'invoice' | 'history' | 'notices' | 'rebate' | 'hscode' | 'subscription' | 'crypto-tax' | 'blockchain-verify' | 'tokenized-cert' | 'tax-advisory' | 'zakat' | 'final-tax' | 'developer' | 'documents' | 'critical-vat' | 'help' | 'social' | 'base' | 'x-scraper' | 'whatsapp' | 'odoo' | 'dropbox' | 'odoo-erp' | 'erpnext' | 'vat-agents' | 'live-agent' | 'donation' | 'vds-tracker' | 'tds-tracker' | 'compliance-calendar' | 'agent-marketplace' | 'challan-verify' | 'mfs-payment' | 'trms-extractor' | 'corporate-tax' | 'ocr-automation' | 'law-updates' | 'vat-ocr' | 'tax-ocr' | 'batch-invoice-ocr' | 'mvp-hub';
+type Tab = 'dashboard' | 'nbr-script-markup' | 'ocr' | 'scanner' | 'vat' | 'tax' | 'tariff' | 'manifest' | 'reports' | 'blog' | 'tools' | 'ai' | 'invoice' | 'history' | 'notices' | 'rebate' | 'hscode' | 'subscription' | 'crypto-tax' | 'blockchain-verify' | 'tokenized-cert' | 'tax-advisory' | 'zakat' | 'final-tax' | 'ctg-tax' | 'developer' | 'documents' | 'critical-vat' | 'help' | 'social' | 'base' | 'x-scraper' | 'whatsapp' | 'odoo' | 'dropbox' | 'odoo-erp' | 'erpnext' | 'vat-agents' | 'live-agent' | 'donation' | 'vds-tracker' | 'tds-tracker' | 'compliance-calendar' | 'agent-marketplace' | 'challan-verify' | 'mfs-payment' | 'trms-extractor' | 'corporate-tax' | 'ocr-automation' | 'law-updates' | 'vat-ocr' | 'tax-ocr' | 'batch-invoice-ocr' | 'mvp-hub';
 
 interface TaxNotice {
   id: number;
@@ -267,15 +269,23 @@ export default function App() {
     compliance: true,
     enterprise: false
   });
+  const [showExperimentalMenu, setShowExperimentalMenu] = useState(false);
 
   const toggleSidebarGroup = (groupKey: string) => {
     setOpenSidebarGroups(prev => ({ ...prev, [groupKey]: !prev[groupKey] }));
   };
 
   useEffect(() => {
+    const experimentalTabs: Tab[] = ['crypto-tax', 'blockchain-verify', 'tokenized-cert', 'social', 'whatsapp', 'x-scraper', 'donation', 'blog', 'help'];
+    if (experimentalTabs.includes(activeTab)) {
+      setShowExperimentalMenu(true);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
     const groupMap: Record<string, Tab[]> = {
       vat: ['critical-vat', 'vat', 'vds-tracker', 'challan-verify', 'batch-invoice-ocr', 'vat-agents', 'vat-ocr'],
-      tax: ['nbr-script-markup', 'tax', 'corporate-tax', 'trms-extractor', 'tds-tracker', 'final-tax', 'rebate', 'zakat', 'tax-ocr'],
+      tax: ['nbr-script-markup', 'tax', 'corporate-tax', 'trms-extractor', 'tds-tracker', 'final-tax', 'rebate', 'zakat', 'tax-ocr', 'ctg-tax'],
       docs: ['scanner', 'ocr', 'documents'],
       ai: ['ai', 'tax-advisory', 'hscode'],
       compliance: ['subscription', 'compliance-calendar', 'reports', 'mfs-payment', 'history', 'notices'],
@@ -600,6 +610,7 @@ export default function App() {
                       <NavItem icon={<FileSearch size={18} />} label={t.taxOcr} active={activeTab === 'tax-ocr'} onClick={() => { setActiveTab('tax-ocr'); setIsMobileMenuOpen(false); }} />
                       <NavItem icon={<Calculator size={18} />} label="TDS Tracker" active={activeTab === 'tds-tracker'} onClick={() => { setActiveTab('tds-tracker'); setIsMobileMenuOpen(false); }} />
                       <NavItem icon={<Shield size={18} />} label={t.finalTax} active={activeTab === 'final-tax'} onClick={() => { setActiveTab('final-tax'); setIsMobileMenuOpen(false); }} />
+                      <NavItem icon={<Building2 size={18} className="text-emerald-500" />} label={language === 'bn' ? 'চসিক হোল্ডিং কর ও গণপূর্ত ভাড়া' : 'Chittagong Tax & PWD Rent'} badge="New" active={activeTab === 'ctg-tax'} onClick={() => { setActiveTab('ctg-tax'); setIsMobileMenuOpen(false); }} />
                       <NavItem icon={<TrendingUp size={18} />} label={t.rebate} active={activeTab === 'rebate'} onClick={() => { setActiveTab('rebate'); setIsMobileMenuOpen(false); }} />
                       <NavItem icon={<Coins size={18} />} label={t.zakat} active={activeTab === 'zakat'} onClick={() => { setActiveTab('zakat'); setIsMobileMenuOpen(false); }} />
                     </div>
@@ -614,12 +625,16 @@ export default function App() {
                   </div>
 
                   <div>
-                    <p className="px-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-4">Business Suite</p>
+                    <p className="px-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-4">Enterprise & Business Suite</p>
                     <div className="space-y-1">
                       <NavItem icon={<Receipt size={18} />} label={t.invoice} active={activeTab === 'invoice'} onClick={() => { setActiveTab('invoice'); setIsMobileMenuOpen(false); }} />
-                      <NavItem icon={<Settings size={18} />} label="Odoo Setup" active={activeTab === 'odoo'} onClick={() => { setActiveTab('odoo'); setIsMobileMenuOpen(false); }} />
-                      <NavItem icon={<Database size={18} />} label="Odoo ERP Integration" active={activeTab === 'odoo-erp'} onClick={() => { setActiveTab('odoo-erp'); setIsMobileMenuOpen(false); }} />
-                      <NavItem icon={<Cpu size={18} />} label="ERPNext Automation" active={activeTab === 'erpnext'} onClick={() => { setActiveTab('erpnext'); setIsMobileMenuOpen(false); }} />
+                      <NavItem 
+                        icon={<Layers size={18} className="text-amber-400" />} 
+                        label={language === 'bn' ? 'এন্টারপ্রাইজ ইআরপি হাব (Odoo & ERPNext)' : 'Enterprise ERP Hub'} 
+                        badge="Unified"
+                        active={activeTab === 'odoo-erp' || activeTab === 'erpnext' || activeTab === 'odoo'} 
+                        onClick={() => { setActiveTab('odoo-erp'); setIsMobileMenuOpen(false); }} 
+                      />
                       <NavItem icon={<Folder size={18} />} label="Dropbox Cloud" active={activeTab === 'dropbox'} onClick={() => { setActiveTab('dropbox'); setIsMobileMenuOpen(false); }} />
                       <NavItem icon={<Database size={18} />} label={t.base} active={activeTab === 'base'} onClick={() => { setActiveTab('base'); setIsMobileMenuOpen(false); }} />
                     </div>
@@ -630,22 +645,36 @@ export default function App() {
                     <div className="space-y-1">
                       <NavItem icon={<Bell size={18} className="text-amber-500" />} label={language === 'bn' ? 'আইন আপডেট' : 'Law Updates'} active={activeTab === 'law-updates'} onClick={() => { setActiveTab('law-updates'); setIsMobileMenuOpen(false); }} />
                       <NavItem icon={<Building2 size={18} />} label={t.vatAgents} active={activeTab === 'vat-agents'} onClick={() => { setActiveTab('vat-agents'); setIsMobileMenuOpen(false); }} />
-                      <NavItem icon={<FileText size={18} />} label={t.blog} active={activeTab === 'blog'} onClick={() => { setActiveTab('blog'); setIsMobileMenuOpen(false); }} />
                       <NavItem icon={<Bell size={18} />} label={t.notices} active={activeTab === 'notices'} onClick={() => { setActiveTab('notices'); setIsMobileMenuOpen(false); }} />
-                      <NavItem icon={<Heart size={18} />} label="Donation Centre" active={activeTab === 'donation'} onClick={() => { setActiveTab('donation'); setIsMobileMenuOpen(false); }} />
-                      <NavItem icon={<MessageSquare size={18} />} label="WhatsApp Automation" active={activeTab === 'whatsapp'} onClick={() => { setActiveTab('whatsapp'); setIsMobileMenuOpen(false); }} />
-                      <NavItem icon={<Share2 size={18} />} label={t.social} active={activeTab === 'social'} onClick={() => { setActiveTab('social'); setIsMobileMenuOpen(false); }} />
-                      <NavItem icon={<Twitter size={18} />} label="X Intelligence" active={activeTab === 'x-scraper'} onClick={() => { setActiveTab('x-scraper'); setIsMobileMenuOpen(false); }} />
                     </div>
                   </div>
 
-                  <div>
-                    <p className="px-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-4">Web3 & Tech</p>
-                    <div className="space-y-1">
-                      <NavItem icon={<Coins size={18} />} label={t.crypto} active={activeTab === 'crypto-tax'} onClick={() => { setActiveTab('crypto-tax'); setIsMobileMenuOpen(false); }} />
-                      <NavItem icon={<Fingerprint size={18} />} label={t.blockchain} active={activeTab === 'blockchain-verify'} onClick={() => { setActiveTab('blockchain-verify'); setIsMobileMenuOpen(false); }} />
-                      <NavItem icon={<Ticket size={18} />} label={t.tokens} active={activeTab === 'tokenized-cert'} onClick={() => { setActiveTab('tokenized-cert'); setIsMobileMenuOpen(false); }} />
-                    </div>
+                  {/* Collapsed Secondary / Experimental Tools in Mobile */}
+                  <div className="pt-2 px-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowExperimentalMenu(!showExperimentalMenu)}
+                      className="w-full flex items-center justify-between px-3 py-2 text-xs font-mono font-bold text-zinc-300 bg-zinc-900 rounded-xl border border-zinc-800 transition-colors"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Cpu size={14} className="text-amber-400" />
+                        {language === 'bn' ? 'এক্সপেরিমেন্টাল ল্যাবস ও ওয়েব৩ (৭)' : 'Experimental Labs & Web3 (7)'}
+                      </span>
+                      <ChevronDown size={14} className={cn("transition-transform text-zinc-400", showExperimentalMenu && "rotate-180 text-amber-400")} />
+                    </button>
+                    {showExperimentalMenu && (
+                      <div className="mt-2 pl-2 border-l border-zinc-800 space-y-1">
+                        <NavItem icon={<Coins size={18} />} label={t.crypto} active={activeTab === 'crypto-tax'} onClick={() => { setActiveTab('crypto-tax'); setIsMobileMenuOpen(false); }} />
+                        <NavItem icon={<Fingerprint size={18} />} label={t.blockchain} active={activeTab === 'blockchain-verify'} onClick={() => { setActiveTab('blockchain-verify'); setIsMobileMenuOpen(false); }} />
+                        <NavItem icon={<Ticket size={18} />} label={t.tokens} active={activeTab === 'tokenized-cert'} onClick={() => { setActiveTab('tokenized-cert'); setIsMobileMenuOpen(false); }} />
+                        <NavItem icon={<Share2 size={18} />} label={t.social} active={activeTab === 'social'} onClick={() => { setActiveTab('social'); setIsMobileMenuOpen(false); }} />
+                        <NavItem icon={<MessageSquare size={18} />} label="WhatsApp Automation" active={activeTab === 'whatsapp'} onClick={() => { setActiveTab('whatsapp'); setIsMobileMenuOpen(false); }} />
+                        <NavItem icon={<Twitter size={18} />} label="X Intelligence" active={activeTab === 'x-scraper'} onClick={() => { setActiveTab('x-scraper'); setIsMobileMenuOpen(false); }} />
+                        <NavItem icon={<Heart size={18} />} label="Donation Centre" active={activeTab === 'donation'} onClick={() => { setActiveTab('donation'); setIsMobileMenuOpen(false); }} />
+                        <NavItem icon={<FileText size={18} />} label={t.blog} active={activeTab === 'blog'} onClick={() => { setActiveTab('blog'); setIsMobileMenuOpen(false); }} />
+                        <NavItem icon={<AlertCircle size={18} />} label={t.help} active={activeTab === 'help'} onClick={() => { setActiveTab('help'); setIsMobileMenuOpen(false); }} />
+                      </div>
+                    )}
                   </div>
                 </nav>
               </div>
@@ -820,6 +849,7 @@ export default function App() {
                 <NavItem icon={<Calculator size={16} />} label="TDS Withholding Tracker" active={activeTab === 'tds-tracker'} onClick={() => setActiveTab('tds-tracker')} />
                 <NavItem icon={<FileSearch size={16} />} label={t.trmsExtractor} active={activeTab === 'trms-extractor'} onClick={() => setActiveTab('trms-extractor')} />
                 <NavItem icon={<Shield size={16} />} label={t.finalTax} active={activeTab === 'final-tax'} onClick={() => setActiveTab('final-tax')} />
+                <NavItem icon={<Building2 size={16} className="text-emerald-400" />} label={language === 'bn' ? 'চসিক গৃহকর ও গণপূর্ত অফিস ভাড়া' : 'Chittagong Tax & PWD Rent'} badge="New" active={activeTab === 'ctg-tax'} onClick={() => setActiveTab('ctg-tax')} />
                 <NavItem icon={<TrendingUp size={16} />} label={t.rebate} active={activeTab === 'rebate'} onClick={() => setActiveTab('rebate')} />
                 <NavItem icon={<Coins size={16} />} label={t.zakat} active={activeTab === 'zakat'} onClick={() => setActiveTab('zakat')} />
               </div>
@@ -885,28 +915,56 @@ export default function App() {
             )}
           </div>
 
-          {/* Group 6: Enterprise ERP & Web3 */}
+          {/* Group 6: Enterprise ERP Hub & Integrations */}
           <div className="border-t border-zinc-800/70 pt-3">
             <button
               onClick={() => toggleSidebarGroup('enterprise')}
               className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-400 hover:text-white transition-colors"
             >
-              <span>{language === 'bn' ? '৬. ইআরপি, ওয়েব৩ ও অন্যান্য' : '6. ERP, Web3 & Ecosystem'}</span>
+              <span>{language === 'bn' ? '৬. এন্টারপ্রাইজ ইআরপি ও ক্লাউড' : '6. Enterprise ERP & Cloud'}</span>
               <ChevronDown size={14} className={cn("transition-transform", openSidebarGroups.enterprise && "rotate-180 text-amber-400")} />
             </button>
             {openSidebarGroups.enterprise && (
               <div className="mt-1 space-y-1">
                 <NavItem icon={<Receipt size={16} />} label={t.invoice} active={activeTab === 'invoice'} onClick={() => setActiveTab('invoice')} />
-                <NavItem icon={<Database size={16} />} label="Odoo ERP Integration" active={activeTab === 'odoo-erp'} onClick={() => setActiveTab('odoo-erp')} />
-                <NavItem icon={<Cpu size={16} />} label="ERPNext Automation" active={activeTab === 'erpnext'} onClick={() => setActiveTab('erpnext')} />
+                <NavItem 
+                  icon={<Layers size={16} className="text-amber-400" />} 
+                  label={language === 'bn' ? 'এন্টারপ্রাইজ ইআরপি হাব (Odoo & ERPNext)' : 'Enterprise ERP Hub'} 
+                  badge="Unified" 
+                  active={activeTab === 'odoo-erp' || activeTab === 'erpnext' || activeTab === 'odoo'} 
+                  onClick={() => setActiveTab('odoo-erp')} 
+                />
                 <NavItem icon={<Folder size={16} />} label="Dropbox Cloud" active={activeTab === 'dropbox'} onClick={() => setActiveTab('dropbox')} />
                 <NavItem icon={<Database size={16} />} label={t.base} active={activeTab === 'base'} onClick={() => setActiveTab('base')} />
-                <NavItem icon={<Fingerprint size={16} />} label={t.blockchain} active={activeTab === 'blockchain-verify'} onClick={() => setActiveTab('blockchain-verify')} />
-                <NavItem icon={<Ticket size={16} />} label={t.tokens} active={activeTab === 'tokenized-cert'} onClick={() => setActiveTab('tokenized-cert')} />
-                <NavItem icon={<Coins size={16} />} label={t.crypto} active={activeTab === 'crypto-tax'} onClick={() => setActiveTab('crypto-tax')} />
-                <NavItem icon={<Share2 size={16} />} label={t.social} active={activeTab === 'social'} onClick={() => setActiveTab('social')} />
-                <NavItem icon={<FileText size={16} />} label={t.blog} active={activeTab === 'blog'} onClick={() => setActiveTab('blog')} />
-                <NavItem icon={<AlertCircle size={16} />} label={t.help} active={activeTab === 'help'} onClick={() => setActiveTab('help')} />
+
+                {/* Experimental Labs Accordion (Non-core tools collapsed from primary nav) */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowExperimentalMenu(!showExperimentalMenu)}
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 text-[10px] font-mono font-bold text-zinc-400 hover:text-zinc-200 bg-zinc-900/60 hover:bg-zinc-900 rounded-lg border border-zinc-800/80 transition-colors"
+                  >
+                    <span className="flex items-center gap-1.5 uppercase tracking-wider">
+                      <Cpu size={12} className="text-amber-400/80" />
+                      {language === 'bn' ? 'এক্সপেরিমেন্টাল ল্যাবস (৭)' : 'Experimental Labs (7)'}
+                    </span>
+                    <ChevronDown size={12} className={cn("transition-transform text-zinc-500", showExperimentalMenu && "rotate-180 text-amber-400")} />
+                  </button>
+
+                  {showExperimentalMenu && (
+                    <div className="mt-1.5 pl-2 border-l border-zinc-800/80 space-y-1">
+                      <NavItem icon={<Fingerprint size={15} />} label={t.blockchain} active={activeTab === 'blockchain-verify'} onClick={() => setActiveTab('blockchain-verify')} />
+                      <NavItem icon={<Ticket size={15} />} label={t.tokens} active={activeTab === 'tokenized-cert'} onClick={() => setActiveTab('tokenized-cert')} />
+                      <NavItem icon={<Coins size={15} />} label={t.crypto} active={activeTab === 'crypto-tax'} onClick={() => setActiveTab('crypto-tax')} />
+                      <NavItem icon={<Share2 size={15} />} label={t.social} active={activeTab === 'social'} onClick={() => setActiveTab('social')} />
+                      <NavItem icon={<MessageSquare size={15} />} label="WhatsApp Automation" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} />
+                      <NavItem icon={<Twitter size={15} />} label="X Intelligence" active={activeTab === 'x-scraper'} onClick={() => setActiveTab('x-scraper')} />
+                      <NavItem icon={<Heart size={15} />} label="Donation Centre" active={activeTab === 'donation'} onClick={() => setActiveTab('donation')} />
+                      <NavItem icon={<FileText size={15} />} label={t.blog} active={activeTab === 'blog'} onClick={() => setActiveTab('blog')} />
+                      <NavItem icon={<AlertCircle size={15} />} label={t.help} active={activeTab === 'help'} onClick={() => setActiveTab('help')} />
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1170,6 +1228,7 @@ export default function App() {
             {activeTab === 'tokenized-cert' && <TokenizedCertificates />}
             {activeTab === 'tax-advisory' && <IncomeTaxAdvisory />}
             {activeTab === 'final-tax' && <FinalTaxCalculator />}
+            {activeTab === 'ctg-tax' && <CtgUnifiedTaxCalculator />}
             {activeTab === 'zakat' && <ZakatCalculator />}
             {activeTab === 'critical-vat' && <Mushak91Form />}
             {activeTab === 'mvp-hub' && <MVPFeaturesHub language={language} setActiveTab={setActiveTab} />}
@@ -1183,10 +1242,13 @@ export default function App() {
             {activeTab === 'base' && <BaseManager />}
             {activeTab === 'x-scraper' && <XScraper />}
             {activeTab === 'whatsapp' && <WhatsAppAutomation />}
-            {activeTab === 'odoo' && <OdooAccounting language={language} />}
+            {(activeTab === 'odoo' || activeTab === 'odoo-erp' || activeTab === 'erpnext') && (
+              <UnifiedERPHub 
+                language={language} 
+                defaultTab={activeTab === 'erpnext' ? 'erpnext' : activeTab === 'odoo' ? 'odoo-guide' : 'odoo-live'} 
+              />
+            )}
             {activeTab === 'dropbox' && <DropboxManager />}
-            {activeTab === 'odoo-erp' && <OdooIntegration />}
-            {activeTab === 'erpnext' && <ERPNextIntegration />}
             {activeTab === 'donation' && <DonationCentre />}
             {activeTab === 'vds-tracker' && <VDSTracker />}
             {activeTab === 'tds-tracker' && <TDSTracker />}

@@ -678,7 +678,10 @@ try {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const args = process.argv.slice(2);
+  const portIndex = args.indexOf('--port');
+  const cliPort = portIndex !== -1 && args[portIndex + 1] ? Number(args[portIndex + 1]) : null;
+  const PORT = cliPort || Number(process.env.DEFAULT_APP_PORT) || 3000;
 
   app.use(cors());
   app.use(express.json({ limit: "50mb" }));
@@ -3409,13 +3412,6 @@ Rules:
     }
   });
 
-  // Run immediately on start and then every 2 hours
-  fetchLatestNotices();
-  setInterval(fetchLatestNotices, 1000 * 60 * 60 * 2);
-
-  // Poll for scheduled posts every 1 minute
-  setInterval(processScheduledPosts, 1000 * 60);
-
   // API 404 fallback handler (prevents returning HTML for unknown API endpoints)
   app.all(["/api", "/api/*", "/api/**"], (req, res) => {
     res.status(404).json({
@@ -3440,6 +3436,12 @@ Rules:
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    // Non-blocking background workers scheduled after server binds
+    setTimeout(() => {
+      fetchLatestNotices().catch(err => console.error("Initial notices fetch error:", err?.message || err));
+    }, 2000);
+    setInterval(fetchLatestNotices, 1000 * 60 * 60 * 2);
+    setInterval(processScheduledPosts, 1000 * 60);
   });
 }
 

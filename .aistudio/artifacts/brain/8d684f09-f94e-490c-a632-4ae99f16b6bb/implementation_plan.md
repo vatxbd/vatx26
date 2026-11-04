@@ -1,88 +1,61 @@
-# Bangladesh Multi-Channel Payment Gateway Architecture & Implementation Plan
+# Redundant Tools Optimization & ERP Consolidation Plan
 
-## 1. Executive Summary & Recommended Gateway Solution
-Based on your requirements for **Platform Subscriptions & Premium Tool Licensing** with **Bangladesh multi-channel aggregator support** and an **interactive sandbox simulator**, the recommended standard in Bangladesh is a dual-mode **SSLCOMMERZ / AamarPay Aggregator Integration Engine**.
+## 1. Problem Analysis & Audit of Redundant Tools
 
-### Why an Aggregator is the Optimal Choice:
-1. **100% Domestic Coverage in One Integration:**
-   - **MFS Wallets:** bKash, Nagad, Rocket, Upay, Cellfin, SureCash.
-   - **Bank Cards:** Visa, Mastercard, UnionPay, American Express, DBBL Nexus / NexusPay.
-   - **Internet Banking:** City Touch, AB Bank, Islami Bank, EBL Skybanking, MTB Internet Banking.
-2. **Regulatory & Compliance Assurance:**
-   - Licensed as a Payment Systems Operator (PSO) by Bangladesh Bank.
-   - PCI-DSS Level 1 certified security.
-3. **Dual-Environment Architecture (Sandbox Simulator & Live Merchant):**
-   - **Interactive Sandbox Simulator:** Enables instant, zero-credential end-to-end testing of subscription upgrades, automatic invoice generation, and tier unlocking without waiting for bank merchant approval.
-   - **Production Merchant Ready:** Easily switches to live mode simply by adding `STORE_ID` and `STORE_PASSWD` in settings or environment variables.
+Following our audit of the 50+ tool tabs in `VATX.BD`, we identified critical redundancies and clutter that dilute the platform's professional focus:
 
----
+### A. Fragmented ERP Integrations (To be Consolidated):
+1. **`odoo` (`OdooAccounting.tsx`):** Educational setup guide for Bangladesh localization, chart of accounts, and VAT tax slabs.
+2. **`odoo-erp` (`OdooIntegration.tsx`):** Live REST/Composio query client for Invoices (`account.move`), Customers (`res.partner`), and Payments.
+3. **`erpnext` (`ERPNextIntegration.tsx`):** Live ERPNext doctype browser and record creator.
+*Current issue:* Having separate menu entries (`Odoo Setup`, `Odoo ERP Integration`, `ERPNext Automation`) fragments the enterprise experience and clutters the navigation.
 
-## 2. Gateway Comparison & Architecture Matrix
+### B. Non-Core & Distracting Tools (To be Hidden from Primary Navigation):
+- **Web3 / Crypto Tools:** `crypto-tax`, `blockchain-verify`, `tokenized-cert` (non-statutory in Bangladesh, creates regulatory ambiguity).
+- **Social Scrapers & Marketing:** `social`, `x-scraper`, `whatsapp`, `donation`.
+*Current issue:* Clutters Group 6 ("ইআরপি, ওয়েব৩ ও অন্যান্য") with 11 disparate items, detracting from the core NBR tax compliance value proposition.
 
-| Feature / Criteria | SSLCOMMERZ (Aggregator) | AamarPay (Aggregator) | Direct bKash / Nagad API |
-| :--- | :--- | :--- | :--- |
-| **Supported Methods** | All MFS + All Cards + All Net Banking | All MFS + Cards + Net Banking | Only bKash or Nagad |
-| **Merchant Onboarding** | Corporate Trade License, BIN, TIN | Trade License, BIN, TIN, Bank Acct | Separate agreement with each MFS |
-| **Recurring Billing** | Supported via Tokenization / Pre-auth | Direct Debit Agreement required | Supported via bKash Agreement API |
-| **Integration Complexity** | Standard REST API + IPN Webhook | Standard REST API + Webhook | 2 Separate API specifications |
-| **Best Suited For** | **Fintech SaaS, EdTech, Platform Subs** | Small e-Commerce & Digital goods | High-volume single-channel apps |
+### C. Preserved as Requested:
+- All 7 OCR and Document Scanning tabs (`batch-invoice-ocr`, `ocr`, `scanner`, `ocr-automation`, `vat-ocr`, `tax-ocr`, `documents`, `nbr-script-markup`) remain intact with zero alterations to their dedicated routes or tabs.
 
 ---
 
-## 3. Detailed Implementation Roadmap
+## 2. Solution Architecture: Unified Enterprise ERP Hub
 
-### Phase 1: Server-Side Payment Aggregator Engine (`server.ts`)
-1. **Aggregator Session Initiation Endpoint (`POST /api/payments/checkout/initiate`):**
-   - Generates unique transaction reference (`TRX_VATX_...`).
-   - Computes order total, currency (`BDT`), customer metadata (name, email, phone, plan ID).
-   - In **Sandbox Mode**: returns a hosted simulator URL / modal payload.
-   - In **Live Mode**: communicates with SSLCOMMERZ `gwprocess/v4/api.php` or AamarPay `request.json` to obtain `GatewayPageURL`.
-2. **Instant Payment Notification (IPN) & Webhook Handler (`POST /api/payments/ipn` & `/api/payments/success`):**
-   - Validates checksum/hash (`val_id`, `verify_sign`).
-   - Records transaction in `payment_transactions` database table.
-   - Automatically activates user subscription tier (Basic, Pro, or Enterprise) and computes renewal expiration.
-3. **Transaction Status & Verification (`GET /api/payments/status/:tran_id`):**
-   - Real-time polling and instant callback verification for client checkout modals.
+We will consolidate the separate ERP tools into a single, high-performance **Enterprise ERP & Cloud Hub (`src/components/UnifiedERPHub.tsx`)** featuring an intuitive tabbed interface:
 
-### Phase 2: Interactive Sandbox Simulator Modal (`src/components/PaymentGatewayModal.tsx`)
-1. **Visual Bangladesh Gateway Drawer / Modal:**
-   - Clean, branded fintech UI with tabs for:
-     - **Mobile Banking:** bKash (Pink), Nagad (Orange), Rocket (Purple), Upay (Blue).
-     - **Cards & Net Banking:** Visa, Mastercard, DBBL Nexus, CityTouch, Islami Bank.
-2. **Interactive Simulator Controls (Test Scenarios):**
-   - **Simulate Success (Approved):** Generates valid dummy Bank TrxID, triggers IPN validation, unlocks Pro tier immediately.
-   - **Simulate Insufficient Balance / User Failure:** Emulates typical payment decline with actionable user feedback.
-   - **Simulate Timeout / Session Expiry:** Tests graceful rollback and retry mechanism.
-3. **Production Mode Toggle:**
-   - Seamlessly switches from Simulator to real hosted redirect when production credentials are configured.
-
-### Phase 3: Seamless Integration with Subscription View (`src/App.tsx`)
-1. **Upgrade Flow in `SubscriptionView`:**
-   - Replace manual TrxID text entry with a modern "Pay with SSLCOMMERZ / MFS" button on Basic (৳999), Pro (৳2,499), and Enterprise (৳9,999) plan cards.
-   - Shows total in BDT with VAT breakdown (Mushak 6.3 compliant receipt).
-2. **Instant Subscription Tier Activation & Pro Badge:**
-   - On payment completion, updates user profile state immediately.
-   - Generates a downloadable Mushak-compliant digital invoice/receipt with QR code and transaction hash.
-
-### Phase 4: Admin Payment Settings & Transaction Ledger (`SettingsView` & `MFSPayment.tsx`)
-1. **Payment Gateway Settings Panel:**
-   - Gateway Provider Selection: `SSLCOMMERZ (Multi-Channel Aggregator)` vs `AamarPay` vs `Sandbox Simulator`.
-   - Configuration fields: Store ID, Store Password, Live/Sandbox toggle, Webhook URL helper.
-2. **Live Transaction Audit Log:**
-   - Table of all payment transactions: Date, Transaction ID, Customer, Plan, Method (bKash/Nagad/Visa), Amount, Status (`Completed`, `Pending`, `Refunded`).
-   - One-click receipt re-generation and status audit.
+1. **Tab 1: Odoo ERP Live Synchronization**
+   - Active connection status to Odoo instance.
+   - Live query of Invoices, Customers, Products, and Payments.
+   - Instant export of Odoo sales/purchase invoices to Mushak 9.1 sub-forms.
+2. **Tab 2: ERPNext Automation Hub**
+   - Live connection to Frappe/ERPNext doctypes.
+   - Resource search, field discovery, and automatic record generation.
+3. **Tab 3: Odoo Bangladesh Accounting & Tax Localization Guide**
+   - Interactive checklist for installing `l10n_bd`.
+   - Step-by-step setup for Bangladesh VAT slabs (5%, 7.5%, 15%), TDS configuration, and Mushak forms integration.
 
 ---
 
-## 4. Verification & Testing Plan
+## 3. Navigation Clean-Up & Non-Core Tool Optimization
 
-1. **Sandbox Multi-Channel Simulation:**
-   - Test checkout of Pro Plan (৳2,499) with simulated bKash.
-   - Verify that transaction ID is recorded and user tier switches from Free to Pro immediately.
-   - Test card checkout (Visa/Mastercard) with failure simulation to ensure robust error handling.
-2. **API & Server Validation:**
-   - Run automated verification on `/api/payments/checkout/initiate` and `/api/payments/ipn`.
-   - Verify database integrity in SQLite database (`payment_transactions` and `subscriptions`).
-3. **UI/UX & Codebase Integrity:**
-   - Run TypeScript type checks (`tsc --noEmit`) and Vite compilation (`compile_applet`).
-   - Verify responsive display on mobile and desktop viewports.
+### Sidebar Group 6 Streamlining:
+- Replace 3 separate ERP links (`Odoo Setup`, `Odoo ERP`, `ERPNext`) with a single flagship menu item:
+  - **`Enterprise ERP Hub (Odoo & ERPNext)`** (`activeTab === 'odoo-erp'` or `'enterprise-erp'`).
+- Move non-core tools (`crypto-tax`, `blockchain-verify`, `tokenized-cert`, `social`, `x-scraper`, `whatsapp`, `donation`) into a collapsed **"🧪 Experimental Labs & Integrations"** accordion or keep them accessible exclusively via the global Command Palette (`⌘K`).
+- Keep core business accounting items: **Invoicing (মডেল ইনভয়েস ও মূসক ৬.৩)**, **Enterprise ERP Hub**, and **Base DB Manager**.
+
+---
+
+## 4. Implementation Steps
+
+1. **Phase 1: Build `UnifiedERPHub.tsx` (`src/components/UnifiedERPHub.tsx`)**
+   - Merge `OdooIntegration`, `OdooAccounting`, and `ERPNextIntegration` into a clean, modern tabbed component.
+   - Maintain full backwards compatibility with existing API endpoints (`/api/odoo/*` and `/api/erpnext/*`).
+2. **Phase 2: Update Navigation in `src/App.tsx` & Mobile Drawers**
+   - Update desktop sidebar Group 6 and mobile drawer navigation to feature the consolidated **Enterprise ERP Hub**.
+   - Streamline secondary items while preserving 100% of route functionality and search index in `CommandPalette.tsx`.
+3. **Phase 3: Verification & Build Testing**
+   - Run `lint_applet` (`tsc --noEmit`) to ensure zero type errors.
+   - Run `compile_applet` to ensure successful bundle compilation.
+   - Verify all ERP tabs, live queries, and localization guides render seamlessly.

@@ -272,6 +272,17 @@ export default function CommandPalette({
         icon: <Building2 className="w-4 h-4 text-indigo-400" />
       },
       {
+        id: 'ctg-tax',
+        tab: 'ctg-tax',
+        titleEn: 'Chittagong Holding Tax & PWD Govt Office Rent Calculator',
+        titleBn: 'চট্টগ্রাম মহানগরী চসিক গৃহকর ও গণপূর্ত অফিস ভাড়া ক্যালকুলেটর',
+        subtitleEn: 'CCC 1986 taxation rules holding tax vs PWD government office rent ceilings with 15% VAT & 5% TDS',
+        subtitleBn: 'চসিক হোল্ডিং ট্যাক্স (১৭%) ও গণপূর্ত সরকারি অফিস ভাড়ার স্বয়ংক্রিয় দ্বৈত হিসাব',
+        category: 'Income Tax',
+        keywords: 'chittagong ccc holding tax pwd rent ctg চসিক চট্টগ্রাম গৃহকর গণপূর্ত ভাড়া',
+        icon: <Building2 className="w-4 h-4 text-emerald-400" />
+      },
+      {
         id: 'tds-tracker',
         tab: 'tds-tracker',
         titleEn: 'TDS Withholding Register & Rates',
@@ -304,6 +315,17 @@ export default function CommandPalette({
         keywords: 'subscription pricing pro enterprise payment gateway sslcommerz aamarpay bkash nagad সাবস্ক্রিপশন পেমেন্ট প্রো',
         isMvp: true,
         icon: <Sparkles className="w-4 h-4 text-amber-400" />
+      },
+      {
+        id: 'odoo-erp',
+        tab: 'odoo-erp',
+        titleEn: 'Enterprise ERP Hub (Odoo & ERPNext Integration)',
+        titleBn: 'এন্টারপ্রাইজ ইআরপি হাব (Odoo ও ERPNext ইন্টিগ্রেশন)',
+        subtitleEn: 'Unified workbench for Odoo REST/Composio sync, Bangladesh tax localization (l10n_bd), and ERPNext',
+        subtitleBn: 'Odoo রিয়েল-টাইম সিঙ্ক, বাংলাদেশ ট্যাক্স লোকালাইজেশন এবং ERPNext ইনভয়েস অটোমেশন',
+        category: 'Enterprise',
+        keywords: 'odoo erpnext erp integration composio api rest accounting bangladesh l10n_bd ইআরপি ওডু অটোমেশন',
+        icon: <Layers className="w-4 h-4 text-amber-400" />
       }
     ],
     []
