@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import AIErrorDisplay from './components/AIErrorDisplay';
+import type { UserProfile } from './components/AuthAccountModal';
 import { 
   Calculator, 
   Calendar,
@@ -92,41 +94,26 @@ import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
 import { translations, Language } from './translations';
 import { QRCodeSVG } from 'qrcode.react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
-  PieChart as RePieChart, 
-  Pie, 
-  Cell,
-  AreaChart,
-  Area
-} from 'recharts';
-import Mushak91Form from './components/Mushak91Form';
-import DonationCentre from './components/DonationCentre';
-import SocialIntegration from './components/SocialIntegration';
-import BaseManager from './components/BaseManager';
-import XScraper from './components/XScraper';
-import WhatsAppAutomation from './components/WhatsAppAutomation';
-import OdooAccounting from './components/OdooAccounting';
-import DropboxManager from './components/DropboxManager';
-import OdooIntegration from './components/OdooIntegration';
-import ERPNextIntegration from './components/ERPNextIntegration';
-import UnifiedERPHub from './components/UnifiedERPHub';
-import VatAgentPortal from './components/VatAgentPortal';
-import NBRMarkupScriptHub from './components/NBRMarkupScriptHub';
-import { NBRScriptModal } from './components/NBRScriptModal';
-import { PaymentGatewayModal } from './components/PaymentGatewayModal';
-import { AuthAccountModal, UserProfile } from './components/AuthAccountModal';
+const Mushak91Form = lazy(() => import('./components/Mushak91Form'));
+const DonationCentre = lazy(() => import('./components/DonationCentre'));
+const SocialIntegration = lazy(() => import('./components/SocialIntegration'));
+const BaseManager = lazy(() => import('./components/BaseManager'));
+const XScraper = lazy(() => import('./components/XScraper'));
+const WhatsAppAutomation = lazy(() => import('./components/WhatsAppAutomation'));
+const OdooAccounting = lazy(() => import('./components/OdooAccounting'));
+const DropboxManager = lazy(() => import('./components/DropboxManager'));
+const OdooIntegration = lazy(() => import('./components/OdooIntegration'));
+const ERPNextIntegration = lazy(() => import('./components/ERPNextIntegration'));
+const UnifiedERPHub = lazy(() => import('./components/UnifiedERPHub'));
+const VatAgentPortal = lazy(() => import('./components/VatAgentPortal'));
+const NBRMarkupScriptHub = lazy(() => import('./components/NBRMarkupScriptHub'));
+const NBRScriptModal = lazy(() => import('./components/NBRScriptModal').then(m => ({ default: m.NBRScriptModal })));
+const PaymentGatewayModal = lazy(() => import('./components/PaymentGatewayModal').then(m => ({ default: m.PaymentGatewayModal })));
+const AuthAccountModal = lazy(() => import('./components/AuthAccountModal').then(m => ({ default: m.AuthAccountModal })));
 import { generatePrivateSalaryLedgerScript, generateTRMSScript, generateUniversalETaxScript, formatNBRDate } from './utils/nbrScriptGenerator';
 import { parseRobustJson } from './utils/robustJsonParser';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import Markdown from 'react-markdown';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -203,24 +190,27 @@ function SectionGuide({ title, steps, language = 'bn' }: { title: string, steps:
   );
 }
 
-import LiveAgent from './components/LiveAgent';
-import VDSTracker from './components/VDSTracker';
-import ComplianceCalendar from './components/ComplianceCalendar';
-import AgentMarketplace from './components/AgentMarketplace';
-import ChallanVerification from './components/ChallanVerification';
-import MFSPayment from './components/MFSPayment';
-import TDSTracker from './components/TDSTracker';
-import OCRFormAutomation from './components/OCRFormAutomation';
-import OCRHistory from './components/OCRHistory';
-import TRMSAssistant from './components/TRMSAssistant';
-import CorporateTaxAssistant from './components/CorporateTaxAssistant';
-import NotificationCenter from './components/NotificationCenter';
-import OcrTool from './components/OcrTool';
-import AllInOneInvoiceOCR from './components/AllInOneInvoiceOCR';
-import DocumentScanner from './components/DocumentScanner';
-import MVPFeaturesHub from './components/MVPFeaturesHub';
+const LiveAgent = lazy(() => import('./components/LiveAgent'));
+const VDSTracker = lazy(() => import('./components/VDSTracker'));
+const ComplianceCalendar = lazy(() => import('./components/ComplianceCalendar'));
+const AgentMarketplace = lazy(() => import('./components/AgentMarketplace'));
+const ChallanVerification = lazy(() => import('./components/ChallanVerification'));
+const MFSPayment = lazy(() => import('./components/MFSPayment'));
+const TDSTracker = lazy(() => import('./components/TDSTracker'));
+const OCRFormAutomation = lazy(() => import('./components/OCRFormAutomation'));
+const OCRHistory = lazy(() => import('./components/OCRHistory'));
+const TRMSAssistant = lazy(() => import('./components/TRMSAssistant'));
+const CorporateTaxAssistant = lazy(() => import('./components/CorporateTaxAssistant'));
+const NotificationCenter = lazy(() => import('./components/NotificationCenter'));
+const OcrTool = lazy(() => import('./components/OcrTool'));
+const AllInOneInvoiceOCR = lazy(() => import('./components/AllInOneInvoiceOCR'));
+const DocumentScanner = lazy(() => import('./components/DocumentScanner'));
+const MVPFeaturesHub = lazy(() => import('./components/MVPFeaturesHub'));
 import CommandPalette from './components/CommandPalette';
-import CtgUnifiedTaxCalculator from './components/CtgUnifiedTaxCalculator';
+const CtgUnifiedTaxCalculator = lazy(() => import('./components/CtgUnifiedTaxCalculator'));
+const DashboardPieChart = lazy(() => import('./components/DashboardPieChart'));
+const ReportsCharts = lazy(() => import('./components/ReportsCharts'));
+const AIAssistant = lazy(() => import('./components/AIAssistant'));
 
 type Tab = 'dashboard' | 'nbr-script-markup' | 'ocr' | 'scanner' | 'vat' | 'tax' | 'tariff' | 'manifest' | 'reports' | 'blog' | 'tools' | 'ai' | 'invoice' | 'history' | 'notices' | 'rebate' | 'hscode' | 'subscription' | 'crypto-tax' | 'blockchain-verify' | 'tokenized-cert' | 'tax-advisory' | 'zakat' | 'final-tax' | 'ctg-tax' | 'developer' | 'documents' | 'critical-vat' | 'help' | 'social' | 'base' | 'x-scraper' | 'whatsapp' | 'odoo' | 'dropbox' | 'odoo-erp' | 'erpnext' | 'vat-agents' | 'live-agent' | 'donation' | 'vds-tracker' | 'tds-tracker' | 'compliance-calendar' | 'agent-marketplace' | 'challan-verify' | 'mfs-payment' | 'trms-extractor' | 'corporate-tax' | 'ocr-automation' | 'law-updates' | 'vat-ocr' | 'tax-ocr' | 'batch-invoice-ocr' | 'mvp-hub';
 
@@ -1022,7 +1012,9 @@ export default function App() {
       {/* Live Agent Overlay */}
       <AnimatePresence>
         {showLiveAgent && (
-          <LiveAgent onClose={() => setShowLiveAgent(false)} />
+          <Suspense fallback={null}>
+            <LiveAgent onClose={() => setShowLiveAgent(false)} />
+          </Suspense>
         )}
       </AnimatePresence>
 
@@ -1130,6 +1122,7 @@ export default function App() {
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
           >
+            <Suspense fallback={<div className="p-10 text-center text-sm text-zinc-400">Loading…</div>}>
             {activeTab === 'dashboard' && (
               <Dashboard
                 vatHistory={vatHistory}
@@ -1256,6 +1249,7 @@ export default function App() {
             {activeTab === 'agent-marketplace' && <AgentMarketplace />}
             {activeTab === 'challan-verify' && <ChallanVerification />}
             {activeTab === 'mfs-payment' && <MFSPayment />}
+            </Suspense>
           </motion.div>
         </AnimatePresence>
       </main>
@@ -1325,6 +1319,7 @@ export default function App() {
       </footer>
 
       {/* Taxpayer Login, Registration & Account Modal */}
+      {isAuthModalOpen && (
       <AuthAccountModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
@@ -1343,6 +1338,7 @@ export default function App() {
         onNavigateToSubscription={() => setActiveTab('subscription')}
         onNavigateToHistory={() => setActiveTab('history')}
       />
+      )}
     </div>
   );
 }
@@ -3431,6 +3427,7 @@ function Dashboard({
           )}
         </div>
 
+        {isDashboardModalOpen && (
         <NBRScriptModal
           isOpen={isDashboardModalOpen}
           onClose={() => {
@@ -3440,6 +3437,7 @@ function Dashboard({
           initialData={dashboardModalData || {}}
           language={language}
         />
+        )}
       </motion.section>
 
       <motion.div variants={containerVariants} className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -3484,29 +3482,7 @@ function Dashboard({
             <div className="px-4 py-1.5 bg-zinc-50 text-zinc-500 text-[10px] font-black uppercase tracking-widest rounded-full border border-zinc-100">{t.realTime}</div>
           </div>
           <div className="h-[350px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <RePieChart>
-                <Pie
-                  data={[
-                    { name: t.vat, value: totalVat || 1 },
-                    { name: t.tax, value: totalTax || 1 },
-                  ]}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={100}
-                  outerRadius={130}
-                  paddingAngle={12}
-                  dataKey="value"
-                  stroke="none"
-                >
-                  <Cell fill="#10b981" />
-                  <Cell fill="#18181b" />
-                </Pie>
-                <Tooltip 
-                  contentStyle={{ borderRadius: '24px', border: 'none', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.15)', padding: '20px' }}
-                />
-              </RePieChart>
-            </ResponsiveContainer>
+            <DashboardPieChart totalVat={totalVat} totalTax={totalTax} t={t} />
           </div>
           <div className="flex justify-center gap-12 mt-8">
             <div className="flex items-center gap-4">
@@ -5415,277 +5391,6 @@ function ToolCard({ icon, title, description, color, onClick }: { icon: React.Re
   );
 }
 
-function AIErrorDisplay({ onRetry, error, className }: { onRetry: () => void, error?: string, className?: string }) {
-  return (
-    <motion.div 
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      className={cn(
-        "flex flex-col items-center justify-center p-10 text-center gap-6 bg-red-50/30 rounded-[3rem] border border-red-100/50 backdrop-blur-sm",
-        className
-      )}
-    >
-      <div className="w-20 h-20 bg-red-100 rounded-[2rem] flex items-center justify-center text-red-600 shadow-xl shadow-red-200/40 relative">
-        <ShieldAlert size={40} />
-        <div className="absolute -top-1 -right-1 w-6 h-6 bg-white rounded-full flex items-center justify-center shadow-sm">
-          <div className="w-3 h-3 bg-red-500 rounded-full animate-ping" />
-        </div>
-      </div>
-      <div className="space-y-3 max-w-sm">
-        <h4 className="text-xl font-black font-display tracking-tight text-red-900">Connection Interrupted</h4>
-        <p className="text-xs text-red-600/70 font-bold leading-relaxed uppercase tracking-wider">
-          {error || "We encountered a temporary issue connecting to the AI engine. This could be due to network instability or service maintenance."}
-        </p>
-      </div>
-      <button 
-        onClick={onRetry}
-        className="group flex items-center gap-3 px-8 py-4 bg-red-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-red-700 transition-all shadow-xl shadow-red-600/20 active:scale-95"
-      >
-        <Zap size={16} className="group-hover:animate-pulse" /> Try Reconnecting
-      </button>
-    </motion.div>
-  );
-}
-
-function AIAssistant() {
-  const [messages, setMessages] = useState<{ role: 'user' | 'ai'; text: string; isError?: boolean }[]>(() => {
-    const saved = localStorage.getItem('vatx_ai_chat');
-    return saved ? JSON.parse(saved) : [
-      { role: 'ai', text: "Hello! I'm your dedicated AI Tax Advisor. I can provide concise, actionable answers about Bangladesh's tax laws, VAT regulations, and customs duties. How can I help you today?" }
-    ];
-  });
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    localStorage.setItem('vatx_ai_chat', JSON.stringify(messages));
-  }, [messages]);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, loading, error]);
-
-  const exportChat = () => {
-    const content = messages.map(m => `${m.role.toUpperCase()}: ${m.text}`).join('\n\n---\n\n');
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `VATX_AI_Consultation_${new Date().toISOString().split('T')[0]}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleSend = async (customMessage?: string) => {
-    const userMessage = customMessage || input.trim();
-    if (!userMessage || loading) return;
-
-    if (!customMessage) setInput('');
-    setError(null);
-    setMessages(prev => [...prev, { role: 'user', text: userMessage }]);
-    setLoading(true);
-
-    try {
-      const chatRes = await fetch('/api/gemini/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: userMessage,
-          systemInstruction: `You are an expert Tax, VAT, and Customs consultant for Bangladesh. 
-          Your goal is to provide concise, actionable, and accurate information based on the National Board of Revenue (NBR) regulations, the Income Tax Act 2023, and the Value Added Tax and Supplementary Duty Act, 2012 (with latest amendments including Finance Act 2024).
-          
-          Key VAT Law Context (Bangladesh):
-          - Primary Law: Value Added Tax and Supplementary Duty Act, 2012.
-          - Standard VAT Rate: 15%.
-          - Reduced Rates: 5%, 7.5%, 10% for specific goods/services.
-          - Registration Threshold: Annual turnover exceeding 3 Crore BDT.
-          - Enlistment Threshold: Annual turnover between 50 Lakh and 3 Crore BDT (Turnover Tax at 4%).
-          - VDS (VAT Deducted at Source): Applicable to specific services and government/semi-government entities.
-          - Mushak 9.1: The mandatory monthly VAT return form.
-          - EFD/SDC: Electronic Fiscal Devices are mandatory for specific retail and service sectors.
-          
-          Guidelines:
-          - Be professional and direct.
-          - Use bullet points for clarity when explaining regulations.
-          - If a query is about VAT, mention relevant SROs if applicable.
-          - If a query is about Customs, mention HS code importance.
-          - Always include a disclaimer that for complex legal matters, users should consult a certified professional.
-          - Keep answers concise but comprehensive enough to be actionable.`
-        })
-      });
-
-      if (!chatRes.ok) throw new Error(`HTTP ${chatRes.status}`);
-      const chatData = await chatRes.json();
-      const aiText = chatData.text || "I'm sorry, I couldn't process that request.";
-      setMessages(prev => [...prev, { role: 'ai', text: aiText }]);
-    } catch (err) {
-      console.error(err);
-      setError("I'm having trouble connecting to my knowledge base. Please check your connection or try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const quickQueries = [
-    { label: "Tax Slabs 2025", query: "What are the current income tax slabs for individuals in Bangladesh for FY 2025-26?" },
-    { label: "VAT Law 2024", query: "What are the key changes in the Finance Act 2024 regarding VAT in Bangladesh?" },
-    { label: "VAT on Software", query: "What is the VAT rate for software development and IT enabled services in Bangladesh?" },
-    { label: "Customs Duty", query: "How is customs duty calculated for imported electronics in Bangladesh?" },
-    { label: "Tax Rebate", query: "What are the rules for investment tax rebate in Bangladesh according to the 2023 Act?" }
-  ];
-
-  return (
-    <div className="max-w-5xl mx-auto h-[calc(100vh-180px)] flex flex-col gap-6">
-      <div className="flex-1 flex flex-col bg-white md:rounded-[3rem] shadow-2xl shadow-zinc-200/50 border border-zinc-100 overflow-hidden relative">
-        {/* Chat Header */}
-        <div className="p-6 border-b border-zinc-100 bg-white/80 backdrop-blur-md sticky top-0 z-10 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-gradient-to-tr from-brand-600 to-emerald-500 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-brand-600/20">
-              <Bot size={28} />
-            </div>
-            <div>
-              <h3 className="text-lg font-black font-display tracking-tight">Tax Advisor AI</h3>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Active Now</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={exportChat}
-              className="p-3 text-zinc-400 hover:text-brand-600 hover:bg-brand-50 rounded-2xl transition-all"
-              title="Export Conversation"
-            >
-              <Download size={20} />
-            </button>
-            <button 
-              onClick={() => {
-                localStorage.removeItem('vatx_ai_chat');
-                setMessages([{ role: 'ai', text: "Chat history cleared. How can I assist you now?" }]);
-              }}
-              className="p-3 text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all"
-              title="Clear Chat"
-            >
-              <Trash2 size={20} />
-            </button>
-          </div>
-        </div>
-
-        <div 
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto p-6 md:p-10 space-y-8 custom-scrollbar bg-zinc-50/30"
-        >
-          {messages.map((msg, idx) => (
-            <motion.div 
-              key={idx}
-              initial={{ opacity: 0, y: 10, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              className={cn(
-                "flex gap-4 max-w-[85%] md:max-w-[75%]",
-                msg.role === 'user' ? "ml-auto flex-row-reverse" : ""
-              )}
-            >
-              <div className={cn(
-                "w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-sm",
-                msg.role === 'ai' ? "bg-white text-brand-600 border border-zinc-100" : "bg-brand-600 text-white"
-              )}>
-                {msg.role === 'ai' ? <Bot size={20} /> : <User size={20} />}
-              </div>
-              <div className={cn(
-                "p-5 rounded-[2rem] text-sm leading-relaxed shadow-sm relative group/msg",
-                msg.role === 'ai' 
-                  ? "bg-white text-zinc-800 border border-zinc-100 rounded-tl-none" 
-                  : "bg-brand-600 text-white rounded-tr-none shadow-brand-600/20"
-              )}>
-                <div className="prose prose-sm max-w-none prose-p:leading-relaxed prose-li:my-1 prose-headings:font-black">
-                  <Markdown>{msg.text}</Markdown>
-                </div>
-                {msg.role === 'ai' && (
-                  <button 
-                    onClick={() => {
-                      navigator.clipboard.writeText(msg.text);
-                    }}
-                    className="absolute top-2 right-2 p-2 bg-zinc-50 rounded-xl opacity-0 group-hover/msg:opacity-100 transition-all hover:bg-zinc-100 shadow-sm"
-                    title="Copy to Clipboard"
-                  >
-                    <Copy size={14} className="text-zinc-500" />
-                  </button>
-                )}
-              </div>
-            </motion.div>
-          ))}
-          
-          {error && (
-            <AIErrorDisplay 
-              error={error} 
-              onRetry={() => handleSend(messages[messages.length - 1]?.text)} 
-              className="my-4"
-            />
-          )}
-          {loading && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex gap-4"
-            >
-              <div className="w-10 h-10 rounded-2xl bg-white border border-zinc-100 flex items-center justify-center text-brand-600 shadow-sm">
-                <Bot size={20} />
-              </div>
-              <div className="bg-white p-5 rounded-[2rem] rounded-tl-none border border-zinc-100 shadow-sm flex gap-1.5">
-                <div className="w-2 h-2 bg-brand-500 rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-brand-500 rounded-full animate-bounce [animation-delay:0.2s]" />
-                <div className="w-2 h-2 bg-brand-500 rounded-full animate-bounce [animation-delay:0.4s]" />
-              </div>
-            </motion.div>
-          )}
-        </div>
-
-        {/* Chat Input Area */}
-        <div className="p-6 md:p-8 bg-white border-t border-zinc-100">
-          <div className="flex flex-wrap gap-2 mb-6">
-            {quickQueries.map((q, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleSend(q.query)}
-                className="px-4 py-2 bg-zinc-50 hover:bg-brand-50 hover:text-brand-700 border border-zinc-100 hover:border-brand-200 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95"
-              >
-                {q.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex gap-3 relative">
-            <input 
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Ask about tax, VAT, or customs..."
-              className="flex-1 pl-6 pr-16 py-5 bg-zinc-50 border border-zinc-100 rounded-[2rem] focus:outline-none focus:ring-4 focus:ring-brand-500/5 focus:border-brand-500 transition-all font-medium"
-            />
-            <button 
-              onClick={() => handleSend()}
-              disabled={!input.trim() || loading}
-              className="absolute right-2 top-2 bottom-2 w-12 bg-brand-600 text-white rounded-2xl flex items-center justify-center hover:bg-brand-700 transition-all disabled:opacity-50 disabled:scale-100 shadow-lg shadow-brand-600/20 active:scale-90"
-            >
-              <Send size={20} />
-            </button>
-          </div>
-          <p className="text-[10px] text-zinc-400 text-center mt-4 font-bold uppercase tracking-widest">
-            Verify critical info with official NBR gazettes.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const PRODUCT_CATEGORIES = [
   { name: 'Standard Goods/Services', rate: 15 },
   { name: 'IT Enabled Services', rate: 5 },
@@ -7091,64 +6796,7 @@ function ReportsView({ vatHistory, taxHistory, t }: { vatHistory: any[], taxHist
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-[#F3F4F6] space-y-6">
-          <h4 className="text-lg font-bold">Tax Liability Trend</h4>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={monthlyData}>
-                <defs>
-                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#9CA3AF'}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#9CA3AF'}} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
-                  itemStyle={{ fontWeight: 'bold' }}
-                />
-                <Area type="monotone" dataKey="value" stroke="#10B981" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-[#F3F4F6] space-y-6">
-          <h4 className="text-lg font-bold">Tax Distribution</h4>
-          <div className="h-[300px] flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <RePieChart>
-                <Pie
-                  data={typeDistribution}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {typeDistribution.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </RePieChart>
-            </ResponsiveContainer>
-            <div className="space-y-2">
-              {typeDistribution.map((d, i) => (
-                <div key={d.name} className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i] }} />
-                  <span className="text-xs font-bold text-[#374151]">{d.name}</span>
-                  <span className="text-xs text-[#6B7280]">৳{d.value.toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+      <ReportsCharts monthlyData={monthlyData} typeDistribution={typeDistribution} colors={COLORS} />
 
       <div className="bg-white p-8 rounded-3xl shadow-sm border border-[#F3F4F6] space-y-6">
         <h4 className="text-lg font-bold">Compliance Checklist Status</h4>
